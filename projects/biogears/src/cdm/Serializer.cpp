@@ -12,11 +12,17 @@ specific language governing permissions and limitations under the License.
 
 #include <biogears/cdm/Serializer.h>
 #include <biogears/cdm/stdafx.h>
-#include <istream>
-
 #include <biogears/schema/BioGears.hxx>
-
 #include <biogears/cdm/utils/FileUtils.h>
+
+#include <xercesc/dom/DOM.hpp>                // For DOMLSParser, DOMLSInput
+#include <xercesc/dom/DOMLSParser.hpp>
+#include <xercesc/dom/DOMImplementation.hpp>
+#include <xercesc/dom/DOMImplementationLS.hpp>
+#include <xercesc/dom/DOMImplementationRegistry.hpp>
+#include <xercesc/framework/MemBufInputSource.hpp>
+
+#include <sstream>
 
 using namespace xercesc;
 namespace xml = xsd::cxx::xml;
@@ -222,8 +228,113 @@ std::unique_ptr<CDM::ObjectData> Serializer::ReadFile(const std::string& xmlFile
 
 std::unique_ptr<CDM::ObjectData> Serializer::ReadStream(std::istream& stream, Logger* logger)
 {
-  std::unique_ptr<CDM::ObjectData> data;
-  // Implement the logic to read from the stream and populate the data object
-  // This will be similar to the ReadFile method but reading from the stream instead
-  return data;
+  // 1) Ensure the Serializer singleton is instantiated
+  if (m_me == nullptr) {
+    m_me = new Serializer();
+  }
+  // 2) Initialize if not already
+  if (!m_me->m_Initialized && !m_me->Initialize(logger)) {
+    logger->Error("Serializer was not able to initialize");
+    return nullptr;
+  }
+
+  // 3) Create an ErrorHandler and a parser
+  ErrorHandler eh;
+  std::stringstream err;
+
+  std::unique_ptr<DOMLSParser> parser(m_me->CreateParser(logger));
+  parser->getDomConfig()->setParameter(XMLUni::fgDOMErrorHandler, &eh);
+
+  // 4) Read all data from the std::istream into a string
+  std::string xmlContent((std::istreambuf_iterator<char>(stream)),
+                         std::istreambuf_iterator<char>());
+  if (xmlContent.empty()) {
+    err << "Error: Input stream is empty or cannot be read." << std::ends;
+    logger->Error(err);
+    return nullptr;
+  }
+
+  // 5) Create a MemBufInputSource from the XML string
+  MemBufInputSource memBuf(
+    reinterpret_cast<const XMLByte*>(xmlContent.c_str()),
+    xmlContent.size(),
+    "BioGearsXMLBuffer",
+    false  // Do not 'adopt' the buffer
+  );
+
+  // 6) Obtain a DOMImplementation with LS (Load & Save) features
+  const XMLCh ls_id[] = { chLatin_L, chLatin_S, chNull };
+  DOMImplementation* impl = DOMImplementationRegistry::getDOMImplementation(ls_id);
+  if (!impl) {
+    err << "Error: Unable to get DOMImplementationLS." << std::ends;
+    logger->Error(err);
+    return nullptr;
+  }
+
+  // 7) Create a DOMLSInput object
+  DOMLSInput* lsInputRaw = static_cast<DOMImplementationLS*>(impl)->createLSInput();
+  if (!lsInputRaw) {
+    err << "Error: Unable to create DOMLSInput." << std::ends;
+    logger->Error(err);
+    return nullptr;
+  }
+  // Wrap it in a smart pointer for auto-cleanup
+  std::unique_ptr<DOMLSInput> lsInput(lsInputRaw);
+
+  // 8) Provide our in-memory buffer as the source
+  //    (MemBufInputSource inherits from InputSource)
+  lsInput->setByteStream(&memBuf);
+
+  // 9) Parse the document
+  std::unique_ptr<xercesc::DOMDocument> doc(parser->parse(lsInput.get()));
+  if (eh.failed() || doc == nullptr) {
+    err << "Error reading XML data from stream:\n" 
+        << eh.getError() << std::ends;
+    logger->Error(err);
+    return nullptr;
+  }
+
+  // 10) Validate the parsed DOM and identify the root element
+  DOMElement* root = doc->getDocumentElement();
+  if (!root) {
+    err << "Error: XML document has no root element." << std::ends;
+    logger->Error(err);
+    return nullptr;
+  }
+
+  // 11) Check the root's local name and return the right CDM::ObjectData type
+  std::string name(xml::transcode<char>(root->getLocalName()));
+  if (name.compare("Substance") == 0)
+    return std::unique_ptr<CDM::ObjectData>(CDM::Substance(*doc).release());
+  if (name.compare("Patient") == 0)
+    return std::unique_ptr<CDM::ObjectData>(CDM::Patient(*doc).release());
+  if (name.compare("SubstanceCompound") == 0)
+    return std::unique_ptr<CDM::ObjectData>(CDM::SubstanceCompound(*doc).release());
+  if (name.compare("Scenario") == 0)
+    return std::unique_ptr<CDM::ObjectData>(CDM::Scenario(*doc).release());
+  if (name.compare("EnvironmentalConditions") == 0)
+    return std::unique_ptr<CDM::ObjectData>(CDM::EnvironmentalConditions(*doc).release());
+  if (name.compare("ElectroCardioGramWaveformInterpolator") == 0)
+    return std::unique_ptr<CDM::ObjectData>(CDM::ElectroCardioGramWaveformInterpolator(*doc).release());
+  if (name.compare("Nutrition") == 0)
+    return std::unique_ptr<CDM::ObjectData>(CDM::Nutrition(*doc).release());
+  if (name.compare("PhysiologyEngineDynamicStabilization") == 0)
+    return std::unique_ptr<CDM::ObjectData>(CDM::PhysiologyEngineDynamicStabilization(*doc).release());
+  if (name.compare("PhysiologyEngineTimedStabilization") == 0)
+    return std::unique_ptr<CDM::ObjectData>(CDM::PhysiologyEngineTimedStabilization(*doc).release());
+  if (name.compare("CircuitManager") == 0)
+    return std::unique_ptr<CDM::ObjectData>(CDM::CircuitManager(*doc).release());
+  if (name.compare("CompartmentManager") == 0)
+    return std::unique_ptr<CDM::ObjectData>(CDM::CompartmentManager(*doc).release());
+  if (name.compare("BioGearsConfiguration") == 0)
+    return std::unique_ptr<CDM::ObjectData>(CDM::BioGearsConfiguration(*doc).release());
+  if (name.compare("BioGearsState") == 0)
+    return std::unique_ptr<CDM::ObjectData>(CDM::BioGearsState(*doc).release());
+  if (name.compare("DataRequests") == 0)
+    return std::unique_ptr<CDM::ObjectData>(CDM::DataRequests(*doc).release());
+
+  // 12) Fallback: unrecognized root name
+  err << "Unsupported root tag '" << name << "' found in XML stream." << std::ends;
+  logger->Error(err);
+  return nullptr;
 }

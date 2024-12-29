@@ -23,44 +23,36 @@ specific language governing permissions and limitations under the License.
 #include <biogears/cdm/properties/SEScalarTime.h>
 #include <biogears/cdm/properties/SEScalarVolume.h>
 
-
-//--------------------------------------------------------------------------------------------------
-/// \brief
-/// A class used to handle any specific logic you may want to do each time step
-///
-/// \details
-/// This method will be called at the end of EACH time step of the engine
-/// The SEScenarioExecutor will process the advance time actions in a scenario and 
-/// step the engine, calling this method each time step
-//--------------------------------------------------------------------------------------------------
 class MyCustomExec : public SEScenarioCustomExec
 {
 public:
-	void CustomExec(double time_s, PhysiologyEngine* engine)
-	{
-		// you are given the current scenairo time and the engine, so you can do what ever you want
-	}
+  void CustomExec(double time_s, PhysiologyEngine* engine) override
+  {
+    // Called at the end of EACH time step
+    // Add any custom logic you want here...
+  }
 };
 
-//--------------------------------------------------------------------------------------------------
-/// \brief
-/// Usage of creating and running a scenario
-///
-/// \details
-//--------------------------------------------------------------------------------------------------
-void HowToRunScenario()
+void HowToRunScenario(const std::string& scenarioXML)
 {
-	std::unique_ptr<PhysiologyEngine> bg = CreateBioGearsEngine("HowToRunScenario.log");
+  // 1) Create a BioGears engine
+  std::unique_ptr<PhysiologyEngine> bg = CreateBioGearsEngine("HowToRunScenario.log");
+  bg->GetLogger()->Info("HowToRunScenario");
+  bg->GetLogger()->SetLogLevel(log4cpp::Priority::INFO);
 
-  	bg->GetLogger()->Info("HowToRunScenario");
-	bg->GetLogger()->SetLogLevel(log4cpp::Priority::INFO);
+  // 2) Create our scenario
+  SEScenario sce(bg->GetSubstanceManager());
 
-	SEScenarioExec executor(*bg);
-	SEScenario sce(bg->GetSubstanceManager());
+  // 3) Load from the XML string
+  if (!sce.LoadString(scenarioXML)) {
+    bg->GetLogger()->Error("Could not load scenario from XML string!");
+    return; // Nothing else to do
+  }
 
-	sce.LoadFile("Scenarios/Dynamic_Scenario.xml");
-	//sce.LoadStream(std::cin);
-	sce.GetDataRequestManager().SetSamplesPerSecond(1); // Set sampling interval to 1 second
+  // 4) You can set requests, sampling, etc.
+  sce.GetDataRequestManager().SetSamplesPerSecond(1);
 
-	executor.Execute(sce, "./HowTo-RunScenarioResults.csv", new MyCustomExec());
+  // 5) Execute the scenario
+  SEScenarioExec executor(*bg);
+  executor.Execute(sce, "./HowTo-RunScenarioResults.csv", new MyCustomExec());
 }

@@ -35,7 +35,7 @@ class BIOGEARS_API Serializer {
 public:
   static void Destroy() { SAFE_DELETE(m_me); }
   static std::unique_ptr<CDM::ObjectData> ReadFile(const std::string& xmlFile, Logger* logger);
-   static std::unique_ptr<CDM::ObjectData> ReadStream(std::istream& stream, Logger* logger);
+  static std::unique_ptr<CDM::ObjectData> ReadStream(std::istream& stream, Logger* logger);
 
 private:
   Serializer();

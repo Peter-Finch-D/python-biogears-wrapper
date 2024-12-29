@@ -143,6 +143,12 @@ bool SEScenario::LoadStream(std::istream& scenarioStream)
   return Load(*pData);
 }
 
+bool SEScenario::LoadString(const std::string& scenarioXML)
+{
+  std::istringstream iss(scenarioXML);
+  return LoadStream(iss);
+}
+
 bool SEScenario::IsValid() const
 {
   if (HasInitialParameters()) {

@@ -36,7 +36,8 @@ protected:
 
 public:
   bool LoadFile(const std::string& scenarioFile);
-  bool LoadStream(std::istream& scenarioStream); // Add this line
+  bool LoadStream(std::istream& scenarioStream);
+  bool LoadString(const std::string& scenarioXML);
   bool IsValid() const;
 
   virtual std::string GetName() const;
