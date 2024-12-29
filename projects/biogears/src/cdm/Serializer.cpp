@@ -12,6 +12,7 @@ specific language governing permissions and limitations under the License.
 
 #include <biogears/cdm/Serializer.h>
 #include <biogears/cdm/stdafx.h>
+#include <istream>
 
 #include <biogears/schema/BioGears.hxx>
 
@@ -217,4 +218,12 @@ std::unique_ptr<CDM::ObjectData> Serializer::ReadFile(const std::string& xmlFile
   err << "Unsupported root tag " << name << " found in xml file " << xmlFile << std::ends;
   logger->Error(err);
   return obj;
+}
+
+std::unique_ptr<CDM::ObjectData> Serializer::ReadStream(std::istream& stream, Logger* logger)
+{
+  std::unique_ptr<CDM::ObjectData> data;
+  // Implement the logic to read from the stream and populate the data object
+  // This will be similar to the ReadFile method but reading from the stream instead
+  return data;
 }

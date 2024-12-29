@@ -34,6 +34,8 @@ specific language governing permissions and limitations under the License.
 #include <biogears/cdm/scenario/SEEnvironmentActionCollection.h>
 #include <biogears/cdm/scenario/SEPatientActionCollection.h>
 
+#include <sstream>
+
 SEScenario::SEScenario(SESubstanceManager& subMgr)
   : Loggable(subMgr.GetLogger())
   , m_SubMgr(subMgr)
@@ -119,6 +121,22 @@ bool SEScenario::LoadFile(const std::string& scenarioFile)
   if (pData == nullptr) {
     std::stringstream ss;
     ss << "Scenario file could not be read : " << scenarioFile << std::endl;
+    Error(ss);
+    return false;
+  }
+  return Load(*pData);
+}
+
+bool SEScenario::LoadStream(std::istream& scenarioStream)
+{
+  CDM::ScenarioData* pData;
+  std::unique_ptr<CDM::ObjectData> data;
+
+  data = Serializer::ReadStream(scenarioStream, GetLogger());
+  pData = dynamic_cast<CDM::ScenarioData*>(data.get());
+  if (pData == nullptr) {
+    std::stringstream ss;
+    ss << "Scenario stream could not be read" << std::endl;
     Error(ss);
     return false;
   }

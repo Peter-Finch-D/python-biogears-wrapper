@@ -31,13 +31,12 @@ specific language governing permissions and limitations under the License.
 void HowToScenarioBase()
 {
   // Create our engine
-	std::unique_ptr<PhysiologyEngine> bg = CreateBioGearsEngine("HowToScenarioBase.log");
+  std::unique_ptr<PhysiologyEngine> bg = CreateBioGearsEngine("HowToScenarioBase.log");
   bg->GetLogger()->Info("HowToScenarioBase");
-  
-	
-	//Let's read the scenario we want to base this engine on
-	SEScenario sce(bg->GetSubstanceManager());
-	sce.LoadFile("YourScenario.xml");
+
+  // Let's read the scenario we want to base this engine on
+  SEScenario sce(bg->GetSubstanceManager());
+  sce.LoadFile("Scenarios/Dynamic_Scenario.xml");
 
   if (sce.HasEngineStateFile())
   {
@@ -54,7 +53,7 @@ void HowToScenarioBase()
     {
       std::vector<const SECondition*> conditions;
       for (SECondition* c : sip.GetConditions())
-        conditions.push_back(c);// Copy to const
+        conditions.push_back(c); // Copy to const
       if (!bg->InitializeEngine(sip.GetPatientFile(), &conditions, &sip.GetConfiguration()))
       {
         bg->GetLogger()->Error("Could not load state, check the error");
@@ -65,7 +64,7 @@ void HowToScenarioBase()
     {
       std::vector<const SECondition*> conditions;
       for (SECondition* c : sip.GetConditions())
-        conditions.push_back(c);// Copy to const
+        conditions.push_back(c); // Copy to const
       if (!bg->InitializeEngine(sip.GetPatient(), &conditions, &sip.GetConfiguration()))
       {
         bg->GetLogger()->Error("Could not load state, check the error");
@@ -73,40 +72,48 @@ void HowToScenarioBase()
       }
     }
   }
-  CDM::DataRequestsData* drData;
-  // NOTE : You can just make a DataRequests xml file that holds only data requests
-  // And serialize that in instead of a sceanrio file, if all you want is a consistent
-  // set of data requests for all your scenarios
-  std::unique_ptr<CDM::ObjectData> obj = Serializer::ReadFile("YourDataRequestsFile.xml", bg->GetLogger());
-  drData = dynamic_cast<CDM::DataRequestsData*>(obj.get());
-  bg->GetEngineTrack()->GetDataRequestManager().Load(*drData, bg->GetSubstanceManager());
-  // Don't need to delete drData as obj is wrapped in a unique_ptr
- 
-  // Make a copy of the data requests, not this clears out data requests from the engine
+
   // This will clear out the data requests if any exist in the DataRequestManager
-  drData = sce.GetDataRequestManager().Unload();
+  CDM::DataRequestsData* drData = sce.GetDataRequestManager().Unload();
   bg->GetEngineTrack()->GetDataRequestManager().Load(*drData, bg->GetSubstanceManager());
   delete drData;
 
-  if (!bg->GetEngineTrack()->GetDataRequestManager().HasResultsFilename())
-    bg->GetEngineTrack()->GetDataRequestManager().SetResultsFilename("./ResultsFileName.csv");
+  // Set the results filename to test_results.csv
+  bg->GetEngineTrack()->GetDataRequestManager().SetResultsFilename("./test_results.csv");
+  bg->GetLogger()->Info("Results filename set to ./test_results.csv");
 
-  // Let's request data do be tracked that is in the scenario	
+  // Set the sampling interval to 1 second (or any desired interval)
+  bg->GetEngineTrack()->GetDataRequestManager().SetSamplesPerSecond(10);
+  bg->GetLogger()->Info("Sampling interval set to 1 second.");
+
+  // Log the data requests to ensure they are present
+  if (bg->GetEngineTrack()->GetDataRequestManager().GetDataRequests().empty())
+  {
+    bg->GetLogger()->Error("No data requests found in the scenario.");
+  }
+  else
+  {
+    bg->GetLogger()->Info("Data requests found in the scenario.");
+  }
+
+  // Let's request data to be tracked that is in the scenario
   HowToTracker tracker(*bg);
-	SEAdvanceTime* adv;
-	// Now run the scenario actions
-	for (SEAction* a : sce.GetActions())
-	{
-		// We want the tracker to process an advance time action so it will write each time step of data to our track file
-		adv = dynamic_cast<SEAdvanceTime*>(a);
-		if (adv != nullptr)
-			tracker.AdvanceModelTime(adv->GetTime(TimeUnit::s));// you could just do bg->AdvanceModelTime without tracking timesteps
-		else
-			bg->ProcessAction(*a);
-	}
+  SEAdvanceTime* adv;
+  // Now run the scenario actions
+  for (SEAction* a : sce.GetActions())
+  {
+    // We want the tracker to process an advance time action so it will write each time step of data to our track file
+    adv = dynamic_cast<SEAdvanceTime*>(a);
+    if (adv != nullptr)
+      tracker.AdvanceModelTime(adv->GetTime(TimeUnit::s)); // you could just do bg->AdvanceModelTime without tracking timesteps
+    else
+      bg->ProcessAction(*a);
+  }
 
-	// At this point your engine is where you want it to be
-	// You could read in a new scenario and run it's actions 
-	// or programatically add actions as your applications sees fit
+  // Finalize the engine to ensure all data is written
+  bg->GetLogger()->Info("Finalizing the engine.");
+  bg->GetEngineTrack()->GetDataRequestManager().SetResultsFilename("./test_results.csv");
 
+  // At this point your engine is where you want it to be
+  // You could read in a new scenario and run its actions
 }
