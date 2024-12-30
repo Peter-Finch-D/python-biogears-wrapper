@@ -229,7 +229,7 @@ void PhysiologyEngineDynamicStabilizer::Converge()
   if (!m_converged && m_passTime_s >= m_covTime_s) { // We have converged
     m_converged = true;
     if (m_hasOptionalProperties)
-      Info("We have passed required convergence criteria, attempting to converge optional properties from multiple conditions.");
+      //Info("We have passed required convergence criteria, attempting to converge optional properties from multiple conditions.");
   }
   if (m_converged && m_optsPassTime_s >= m_covTime_s) { // We have converged optional props
     m_convergedOptional = true;
@@ -253,7 +253,7 @@ bool PhysiologyEngineDynamicStabilization::Merge()
   // We only want convergence objects if ALL active conditions have them
   // From there find the PropertyConvergence with the largest %diff
   // Add that pointer to the m_MergedConditions (will need new friend method as that method should not be public)
-  Info("Merging Conditions");
+  //Info("Merging Conditions");
   m_MergedConditions.Clear();
   m_MergedConditions.SetName("MergedCondition"); // May want to include what conditions we are combining in the name?
   double time_s;
@@ -313,13 +313,13 @@ bool PhysiologyEngineDynamicStabilization::Merge()
   DELETE_MAP_SECOND(cMap); // Clean up our Map
   m_MergedConditions.GetConvergenceTime().SetValue(maxConv_s, TimeUnit::s);
   m_ss << "Merged Convergence Time : " << m_MergedConditions.GetConvergenceTime();
-  Info(m_ss);
+  //Info(m_ss);
   m_MergedConditions.GetMinimumReactionTime().SetValue(maxMinStabilize_s, TimeUnit::s);
   m_ss << "Merged Minimum Reaction Time : " << m_MergedConditions.GetMinimumReactionTime();
-  Info(m_ss);
+  //Info(m_ss);
   m_MergedConditions.GetMaximumAllowedStabilizationTime().SetValue(maxMaxStabilize_s, TimeUnit::s);
   m_ss << "Merged Maximum Allowed Stabilization Time : " << m_MergedConditions.GetMaximumAllowedStabilizationTime();
-  Info(m_ss);
+  //Info(m_ss);
   return true;
 }
 
