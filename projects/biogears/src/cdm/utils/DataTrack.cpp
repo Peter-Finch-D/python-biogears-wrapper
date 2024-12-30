@@ -746,3 +746,32 @@ void DataTrack::StreamProbesToFile(double time, std::ofstream& file)
   file << std::endl;
   file.flush();
 }
+
+void DataTrack::StreamProbesToStream(double time, std::ostream& os)
+{
+  double d;
+  // Write out probe values in heading order
+  os << std::fixed << std::setprecision(2) << time << m_Delimiter;
+  for (unsigned int h = 0; h < m_HeadingOrder.size(); h++) {
+    const std::string& s = m_HeadingOrder[h];
+    d = GetProbe(s);
+    if (d == 0) {
+      os << std::fixed << std::setprecision(0);
+      os << 0;
+    } else if (d - ((int)d) == 0) {
+      os << std::fixed << std::setprecision(0);
+      os << d;
+    } else if (std::isnan(d)) {
+      os << "-1.$";
+    } else {
+      // The original call was m_Formatting[s].SetStream(file);
+      // We can call it with 'os' instead
+      m_Formatting[s].SetStream(os);
+      os << d;
+    }
+    if (h < (m_HeadingOrder.size() - 1))
+      os << m_Delimiter;
+  }
+  os << std::endl;
+  os.flush();
+}

@@ -121,6 +121,7 @@ PhysiologyEngineTrack::PhysiologyEngineTrack(PhysiologyEngine& engine)
   if (inh != nullptr)
     m_EquipmentSystems.push_back(inh);
   m_ForceConnection = false;
+  m_PrintToStdout = false;
 }
 
 PhysiologyEngineTrack::PhysiologyEngineTrack(SEPatient& patient, SESubstanceManager& subMgr, SECompartmentManager& cmptMgr,
@@ -136,6 +137,7 @@ PhysiologyEngineTrack::PhysiologyEngineTrack(SEPatient& patient, SESubstanceMana
   for (auto* e : equipment)
     m_EquipmentSystems.push_back(e);
   m_ForceConnection = false;
+  m_PrintToStdout = false;
 }
 
 PhysiologyEngineTrack::~PhysiologyEngineTrack()
@@ -175,8 +177,21 @@ void PhysiologyEngineTrack::SetupRequests()
   }
   // Create the file now that all probes and requests have been added to the track
   // So we get columns for all of our data
-  if (!isOpen)
-    m_DataTrack.CreateFile(m_DataRequestMgr.GetResultFilename().c_str(), m_ResultsStream);
+  //if (!isOpen)
+  //  m_DataTrack.CreateFile(m_DataRequestMgr.GetResultFilename().c_str(), m_ResultsStream);
+
+  // If we have no filename, we'll print to stdout. Otherwise, open a file.
+  if (!isOpen) {
+    const std::string& filename = m_DataRequestMgr.GetResultFilename();
+    if (filename.empty()) {
+      // No filename => we will write to stdout
+      m_PrintToStdout = true;
+    } else {
+      // We do have a filename => open it for writing
+      m_DataTrack.CreateFile(filename.c_str(), m_ResultsStream);
+      m_PrintToStdout = false;
+    }
+  }
 }
 
 void PhysiologyEngineTrack::TrackData(double time_s)
@@ -186,7 +201,15 @@ void PhysiologyEngineTrack::TrackData(double time_s)
 
   SetupRequests();
   PullData();
-  m_DataTrack.StreamProbesToFile(time_s, m_ResultsStream);
+  if (m_PrintToStdout) {
+    // The new method we just made
+    m_DataTrack.StreamProbesToStream(time_s, std::cout);
+  } else {
+    // The old approach writing to the file
+    // (We can call the new function with m_ResultsStream
+    //  or call your original StreamProbesToFile)
+    m_DataTrack.StreamProbesToStream(time_s, m_ResultsStream);
+  }
 }
 void PhysiologyEngineTrack::PullData()
 {

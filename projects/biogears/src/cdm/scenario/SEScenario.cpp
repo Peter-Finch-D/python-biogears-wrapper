@@ -231,7 +231,7 @@ void SEScenario::InvalidateInitialParameters()
 {
   SAFE_DELETE(m_InitialParameters);
 }
-
+//test
 bool SEScenario::HasAutoSerialization() const
 {
   return m_AutoSerialization == nullptr ? false : m_AutoSerialization->IsValid();

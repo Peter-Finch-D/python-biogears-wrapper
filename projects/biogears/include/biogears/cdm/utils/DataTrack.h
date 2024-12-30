@@ -89,6 +89,7 @@ public:
   void StreamTrackToFile(std::ofstream& file);
   // Writes prob values to file in the order things were tracked
   void StreamProbesToFile(double time, std::ofstream& file);
+  void StreamProbesToStream(double time, std::ostream& os);
 
 protected:
   TrackMap m_Track;

@@ -101,6 +101,8 @@ public:
 
 protected:
   bool m_ForceConnection;
+  bool m_PrintToStdout;
+
   DataTrack m_DataTrack;
 
   std::stringstream m_ss;

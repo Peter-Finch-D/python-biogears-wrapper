@@ -37,9 +37,9 @@ void HowToRunScenario(const std::string& scenarioXML)
 {
   // 1) Create a BioGears engine
   std::unique_ptr<PhysiologyEngine> bg = CreateBioGearsEngine("HowToRunScenario.log");
+  bg->GetLogger()->SetLogLevel(log4cpp::Priority::FATAL);
   bg->GetLogger()->Info("HowToRunScenario");
-  bg->GetLogger()->SetLogLevel(log4cpp::Priority::INFO);
-
+  
   // 2) Create our scenario
   SEScenario sce(bg->GetSubstanceManager());
 
@@ -54,5 +54,5 @@ void HowToRunScenario(const std::string& scenarioXML)
 
   // 5) Execute the scenario
   SEScenarioExec executor(*bg);
-  executor.Execute(sce, "./HowTo-RunScenarioResults.csv", new MyCustomExec());
+  executor.Execute(sce, "", new MyCustomExec());
 }

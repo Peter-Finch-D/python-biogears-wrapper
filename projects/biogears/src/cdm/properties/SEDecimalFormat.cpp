@@ -107,3 +107,18 @@ void SEDecimalFormat::SetStream(std::ofstream& s)
     s << std::scientific << std::setprecision(m_Precision);
   }
 }
+
+void SEDecimalFormat::SetStream(std::ostream& s)
+{
+  switch (m_Notation) {
+  case DecimalNotation::Default:
+    s << std::defaultfloat << std::setprecision(m_Precision);
+    break;
+  case DecimalNotation::Fixed:
+    s << std::fixed << std::setprecision(m_Precision);
+    break;
+  case DecimalNotation::Scientific:
+    s << std::scientific << std::setprecision(m_Precision);
+    break;
+  }
+}

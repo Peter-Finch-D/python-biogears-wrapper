@@ -233,7 +233,7 @@ void PhysiologyEngineDynamicStabilizer::Converge()
   }
   if (m_converged && m_optsPassTime_s >= m_covTime_s) { // We have converged optional props
     m_convergedOptional = true;
-    Info("We have passed required and optional convergence criteria.");
+    //Info("We have passed required and optional convergence criteria.");
   }
 
   if (m_totTime_s > m_maxTime_s) {

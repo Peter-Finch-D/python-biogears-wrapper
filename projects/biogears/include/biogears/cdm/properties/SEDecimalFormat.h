@@ -41,6 +41,7 @@ public:
   DecimalNotation GetNotation();
 
   void SetStream(std::ofstream& s);
+  void SetStream(std::ostream& s);
 
 protected:
   std::streamsize m_Precision;
