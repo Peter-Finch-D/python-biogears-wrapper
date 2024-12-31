@@ -1,0 +1,1 @@
+/usr/bin/c++ -fPIC -O3 -DNDEBUG  -shared -Wl,-soname,libbiogears_cdm.so -o ../../outputs/lib/libbiogears_cdm.so @CMakeFiles/libbiogears_cdm.dir/objects1.rsp /usr/lib/x86_64-linux-gnu/libxerces-c.so 

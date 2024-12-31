@@ -1,0 +1,8 @@
+set(ROOT_PROJECT_NAME Biogears)
+set(PROJECT_SOURCE_DIR /opt/biogears/core)
+set(CMAKE_BINARY_DIR /opt/biogears/core/build)
+set(CMAKE_PREFIX_PATH )
+set(CMAKE_EXECUTABLE_SUFFIX )
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY /opt/biogears/core/build/outputs/lib)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY /opt/biogears/core/build/outputs/lib)
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY /opt/biogears/core/build/outputs/bin)

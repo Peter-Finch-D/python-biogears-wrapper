@@ -1,5 +1,4 @@
-build-*/
-build*/
+/build/runtime/simulation_results
 
 #Sublime
 *.sublime-workspace
