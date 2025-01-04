@@ -13,7 +13,7 @@ from digital_twin.dataset import Seq2SeqPhysioDataset
 from digital_twin.utils import print_with_timestamp, sanitize_filename
 
 
-def load_and_process_data(data_dir, output_csv_path, simulation_length=10, seq_length=4, pred_length=5):
+def load_and_process_data(data_dir, output_csv_path, feature_cols, target_cols, simulation_length=10, seq_length=4, pred_length=5):
     """
     Loads all CSV files from the specified directory, processes them, and saves the combined DataFrame.
     
@@ -44,6 +44,8 @@ def load_and_process_data(data_dir, output_csv_path, simulation_length=10, seq_l
         df["Time(s)"] = pd.to_timedelta(df["Time(s)"])
         df.set_index("Time(s)", inplace=True)
         df = df.resample('1min').mean()
+
+        df['time_delta'] = list(range(len(df)))
     
         assert len(df) == simulation_length, f"Expected {simulation_length} rows, got {len(df)} in {csv_path}"
     
@@ -52,26 +54,14 @@ def load_and_process_data(data_dir, output_csv_path, simulation_length=10, seq_l
             df.drop(columns=['Time(s)'], inplace=True)
     
         # Shift target columns to represent next timestep
-        df['HeartRate(1/min)_next'] = df['HeartRate(1/min)'].shift(-1)
-        df['CoreTemperature(degC)_next'] = df['CoreTemperature(degC)'].shift(-1)
-        df['SkinTemperature(degC)_next'] = df['SkinTemperature(degC)'].shift(-1)
+        columns_to_exclude = ['intensity', 'atemp_c', 'rh_pct']
+        columns_to_shift = df.columns.copy()
+        for col in columns_to_shift:
+            if col not in columns_to_exclude:
+                df[f'{col}_next'] = df[col].shift(-1)
     
         df.dropna(inplace=True)  # Remove the last row with NaN targets
     
-        # Ensure all required columns are present
-        feature_cols = [
-            'HeartRate(1/min)', 
-            'CoreTemperature(degC)',
-            'SkinTemperature(degC)',
-            'intensity',
-            'atemp_c',
-            'rh_pct'
-        ]
-        target_cols = [
-            'HeartRate(1/min)_next', 
-            'CoreTemperature(degC)_next',
-            'SkinTemperature(degC)_next'
-        ]
         required_columns = feature_cols + target_cols
     
         if not all(col in df.columns for col in required_columns):
@@ -86,26 +76,12 @@ def load_and_process_data(data_dir, output_csv_path, simulation_length=10, seq_l
     # Concatenate all data for scaling
     concat_df = pd.concat(all_data, ignore_index=True)
     
-    # Define feature and target columns
-    feature_cols = [
-        'HeartRate(1/min)', 
-        'CoreTemperature(degC)',
-        'SkinTemperature(degC)',
-        'intensity',
-        'atemp_c',
-        'rh_pct'
-    ]
-    target_cols = [
-        'HeartRate(1/min)_next', 
-        'CoreTemperature(degC)_next',
-        'SkinTemperature(degC)_next'
-    ]
-    
     # Separate scalers for inputs and targets
     scaler_X = StandardScaler()
     scaler_Y = StandardScaler()
     
     # Fit scalers
+    print("DURING FIT COLUMNS:\n",concat_df.columns)
     scaler_X.fit(concat_df[feature_cols])
     scaler_Y.fit(concat_df[target_cols])
     

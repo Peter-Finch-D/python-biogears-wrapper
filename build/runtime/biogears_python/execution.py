@@ -44,11 +44,38 @@ def run_biogears(xml: str, segments: Dict[str, List[float]]) -> pd.DataFrame:
     df = pd.read_csv(io.StringIO(csv_data))
 
     # Minimal columns rename for consistency
+
+    """
+    data_request_params = [
+        {'Name': 'HeartRate', 'Unit': '1/min'},
+        {'Name': 'CardiacOutput', 'Unit': 'mL/min'},
+        {'Name': 'MeanArterialPressure', 'Unit': 'mmHg'},
+        {'Name': 'SystolicArterialPressure', 'Unit': 'mmHg'},
+        {'Name': 'DiastolicArterialPressure', 'Unit': 'mmHg'},
+        {'Name': 'TotalMetabolicRate', 'Unit': 'kcal/day'},
+        {'Name': 'CoreTemperature', 'Unit': 'degC'},
+        {'Name': 'SkinTemperature', 'Unit': 'degC'},
+        {'Name': 'RespirationRate', 'Unit': '1/min'},
+        {'Name': 'AchievedExerciseLevel'},
+        {'Name': 'FatigueLevel'},
+        {'Name': 'TotalMetabolicRate', 'Unit': 'W'},
+    ]
+    """
+
     df.columns = [
         'Time(s)',
         'HeartRate(1/min)',
+        'CardiacOutput(mL/min)',
+        'MeanArterialPressure(mmHg)',
+        'SystolicArterialPressure(mmHg)',
+        'DiastolicArterialPressure(mmHg)',
+        'TotalMetabolicRate(kcal/day)',
         'CoreTemperature(degC)',
-        'SkinTemperature(degC)'
+        'SkinTemperature(degC)',
+        'RespirationRate(1/min)',
+        'AchievedExerciseLevel',
+        'FatigueLevel',
+        'TotalMetabolicRate(W)',
     ]
     if "Time(s)" in df.columns:
         df["Time(s)"] = pd.to_timedelta(df["Time(s)"], unit="s")
@@ -60,23 +87,14 @@ def run_biogears(xml: str, segments: Dict[str, List[float]]) -> pd.DataFrame:
 
     return merged_df
 
-def run_lstm_sequence(model, segments, scaler_X, scaler_Y, seq_length, initial_state=(0.0, 0.0, 0.0), device='cpu') -> pd.DataFrame:
+def run_lstm_sequence(model, segments, scaler_X, scaler_Y, seq_length, initial_state, device='cpu') -> pd.DataFrame:
     """
-    Perform multi-step prediction using the trained LSTM model.
-    Returns a pandas DataFrame similar to run_lstm in execution.py.
-    
-    Parameters:
-    - model: Trained PyTorch model.
-    - segments: Dictionary containing 'time', 'intensity', 'atemp_c', 'rh_pct'.
-    - scaler_X: Fitted StandardScaler for input features.
-    - scaler_Y: Fitted StandardScaler for target features.
-    - seq_length: Number of timesteps in the input sequence.
-    - initial_state: Tuple containing initial physiological states (HeartRate, CoreTemperature, SkinTemperature).
-    - device: Device to run the model on ('cpu' or 'cuda').
-    
-    Returns:
-    - df_predictions: pandas DataFrame with predictions and environmental parameters.
+    Updated to handle the full 15-feature initial_state and predictions accordingly.
     """
+    import pandas as pd
+    import numpy as np
+    import torch
+    
     model.eval()
     times = segments.get('time', [])
     intensities = segments.get('intensity', [])
@@ -84,87 +102,102 @@ def run_lstm_sequence(model, segments, scaler_X, scaler_Y, seq_length, initial_s
     rhs = segments.get('rh_pct', [])
     n_steps = len(times)
     
-    if n_steps == 0:
-        raise ValueError("segments['time'] is empty; nothing to infer.")
+    # The model now expects 16 features in initial_state (HR, CO, MAP, SAP, DAP, TMR_kcal, CT, ST, RR, AEL, FL, TMR_W, intensity, atemp_c, rh_pct, time_delta)
+    if len(initial_state) != 16:
+        raise ValueError(f"Expected 16 values in initial_state, got {len(initial_state)}.")
+
+    feature_cols = [
+        'time_delta',
+        'HeartRate(1/min)',
+        'CardiacOutput(mL/min)',
+        'MeanArterialPressure(mmHg)',
+        'SystolicArterialPressure(mmHg)',
+        'DiastolicArterialPressure(mmHg)',
+        'TotalMetabolicRate(kcal/day)',
+        'CoreTemperature(degC)',
+        'SkinTemperature(degC)',
+        'RespirationRate(1/min)',
+        'AchievedExerciseLevel',
+        'FatigueLevel',
+        'TotalMetabolicRate(W)',
+        'intensity',
+        'atemp_c',
+        'rh_pct',
+    ]
+    target_cols = [
+        'HeartRate(1/min)_next',
+        'CoreTemperature(degC)_next',
+        'SkinTemperature(degC)_next',
+        'CardiacOutput(mL/min)_next',
+        'MeanArterialPressure(mmHg)_next',
+        'SystolicArterialPressure(mmHg)_next',
+        'DiastolicArterialPressure(mmHg)_next',
+        'TotalMetabolicRate(kcal/day)_next',
+        'RespirationRate(1/min)_next',
+        'AchievedExerciseLevel_next',
+        'FatigueLevel_next',
+        'TotalMetabolicRate(W)_next'
+    ]
     
-    # Initialize records
-    records = {
-        "Time(s)": [], 
-        "HeartRate(1/min)": [], 
-        "CoreTemperature(degC)": [], 
-        "SkinTemperature(degC)": [],
-        "intensity": [], 
-        "atemp_c": [], 
-        "rh_pct": []
-    }
+    # Initialize records for final DataFrame
+    records = {col: [] for col in feature_cols}
+    records["Time(s)"] = []
     
-    # Initial physiological states
-    hr, ct, st = initial_state
-    
-    # Define start offset and time step
-    start_offset = pd.to_timedelta("0 days 00:00:01.020000")
-    one_min = pd.to_timedelta("00:01:00")
-    
-    # Initialize input sequence with initial physiological states and environmental factors
-    input_seq = pd.DataFrame({
-        'HeartRate(1/min)': [hr] * seq_length,
-        'CoreTemperature(degC)': [ct] * seq_length,
-        'SkinTemperature(degC)': [st] * seq_length,
-        'intensity': [intensities[0]] * seq_length,
-        'atemp_c': [atemps[0]] * seq_length,
-        'rh_pct': [rhs[0]] * seq_length,
-    })
-    
-    # Scale the input sequence
+    # Create the initial DataFrame for the input sequence (seq_length rows of the initial state)
+    init_dict = dict(zip(feature_cols, initial_state))
+    input_seq = pd.DataFrame([init_dict] * seq_length, columns=feature_cols)
     input_scaled = scaler_X.transform(input_seq)
     
-    for timestep in range(n_steps):
-        # Current environmental parameters
-        current_intensity = intensities[timestep]
-        current_atemp = atemps[timestep]
-        current_rh = rhs[timestep]
-        
-        # Convert to tensor
-        X_tensor = torch.tensor(input_scaled, dtype=torch.float32).unsqueeze(0).to(device)  # Shape: (1, T, F)
+    # Time handling
+    start_offset = pd.to_timedelta("0 days 00:00:01.000000")
+    one_min = pd.to_timedelta("00:01:00")
+    
+    # Iteratively predict for each timestep
+    for t in range(n_steps):
+        # Convert input_seq to a tensor
+        X_tensor = torch.tensor(input_scaled, dtype=torch.float32).unsqueeze(0).to(device)  # (1, seq_length, 16)
         
         with torch.no_grad():
-            pred_scaled = model(X_tensor).cpu().numpy()[0]  # Shape: (P, 3)
+            # Model output shape: (1, pred_length=5, 12 targets) but we take the last step
+            pred_scaled = model(X_tensor).cpu().numpy()[0]  # (5, 12)
         
-        # Inverse transform the prediction
-        pred = scaler_Y.inverse_transform(pred_scaled)  # Shape: (P, 3)
+        # Take the last row of the predictions
+        pred_scaled_last = pred_scaled[-1].reshape(1, -1)  # shape (1,12)
+        pred_inv = scaler_Y.inverse_transform(pred_scaled_last)[0]  # shape (12,)
         
-        # Use the last prediction for the state
-        hr, ct, st = pred[-1]  # Shape: (3,)
+        # Build a dict for the new predicted state
+        new_pred_state = dict(zip(target_cols, pred_inv))
         
-        # Calculate current time
-        current_time = start_offset + timestep * one_min
-        
-        # Record the last prediction and environmental parameters
-        records["Time(s)"].append(current_time)
-        records["HeartRate(1/min)"].append(hr)
-        records["CoreTemperature(degC)"].append(ct)
-        records["SkinTemperature(degC)"].append(st)
-        records["intensity"].append(current_intensity)
-        records["atemp_c"].append(current_atemp)
-        records["rh_pct"].append(current_rh)
-        
-        # Prepare the new input entry with updated physiological states and current environmental factors
-        new_entry = {
-            'HeartRate(1/min)': hr,
-            'CoreTemperature(degC)': ct,
-            'SkinTemperature(degC)': st,
-            'intensity': current_intensity,
-            'atemp_c': current_atemp,
-            'rh_pct': current_rh,
+        # Construct the full next-state row by combining predictions for model-driven columns
+        # and environment from segments
+        # Note that environment columns "intensity", "atemp_c", "rh_pct" come from the scenario
+        next_row = {
+            # Map predicted columns back to feature columns (strip "_next" suffix)
+            col.replace('_next', ''): new_pred_state[col] for col in target_cols
         }
         
-        # Scale the new entry
-        new_entry_scaled = scaler_X.transform(pd.DataFrame([new_entry]))
+        # Override environment features from scenario for this timestep
+        next_row['intensity'] = intensities[t]
+        next_row['atemp_c'] = atemps[t]
+        next_row['rh_pct'] = rhs[t]
+        next_row['time_delta'] = t
         
-        # Update the input sequence by removing the oldest timestep and adding the new entry
-        input_scaled = np.vstack([input_scaled[1:], new_entry_scaled])
+        # Current time
+        current_time = start_offset + t * one_min
+        
+        # Add row to records
+        records["Time(s)"].append(current_time)
+        for fc in feature_cols:
+            records[fc].append(next_row[fc])
+        
+        # Scale the new row for next iteration
+        new_row_df = pd.DataFrame([next_row], columns=feature_cols)
+        new_row_scaled = scaler_X.transform(new_row_df)
+        
+        # Shift the input_seq up by 1 and append the new row
+        input_scaled = np.vstack([input_scaled[1:], new_row_scaled])
     
-    # Create DataFrame from records
+    # Build the final DataFrame
     df_predictions = pd.DataFrame(records)
     df_predictions.set_index("Time(s)", inplace=True)
     

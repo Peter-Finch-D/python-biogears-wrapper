@@ -9,6 +9,7 @@ from torch.utils.data import DataLoader, Subset
 from sklearn.model_selection import KFold
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from joblib import load
+import multiprocessing  # For determining CPU count
 
 from digital_twin.dataset import Seq2SeqPhysioDataset
 from digital_twin.models import Seq2SeqEnhancedLSTMModel
@@ -19,13 +20,16 @@ def train_model(
     processed_csv_path,
     scalers_dir,
     models_dir,
+    feature_cols,
+    target_cols,
     epochs=200,
-    batch_size=32,
+    batch_size=64,  # Increased batch size for better CPU utilization
     learning_rate=1e-3,
     hidden_size=64,
     num_layers=2,
     dropout=0.3,
-    patience=10
+    patience=10,
+    num_workers=None  # Added num_workers parameter
 ):
     """
     Trains the Seq2Seq LSTM model using the processed data.
@@ -34,7 +38,6 @@ def train_model(
     - processed_csv_path: Path to the processed CSV file.
     - scalers_dir: Directory where scalers are stored.
     - models_dir: Directory to save trained models.
-    - visualizations_dir: Directory for saving visualizations (unused in training).
     - epochs: Number of training epochs.
     - batch_size: Training batch size.
     - learning_rate: Learning rate for the optimizer.
@@ -42,24 +45,15 @@ def train_model(
     - num_layers: Number of LSTM layers.
     - dropout: Dropout rate.
     - patience: Patience for early stopping.
+    - num_workers: Number of subprocesses for data loading. Defaults to number of CPU cores.
     """
+    # Determine number of workers
+    if num_workers is None:
+        num_workers = multiprocessing.cpu_count()
+    print_with_timestamp(f"Number of workers set to: {num_workers}")
+    
     # Load processed data
     df = pd.read_csv(processed_csv_path)
-    
-    # Define feature and target columns
-    feature_cols = [
-        'HeartRate(1/min)', 
-        'CoreTemperature(degC)',
-        'SkinTemperature(degC)',
-        'intensity',
-        'atemp_c',
-        'rh_pct'
-    ]
-    target_cols = [
-        'HeartRate(1/min)_next', 
-        'CoreTemperature(degC)_next',
-        'SkinTemperature(degC)_next'
-    ]
     
     # Load scalers
     scaler_X = load(os.path.join(scalers_dir, 'scaler_X.joblib'))
@@ -86,13 +80,30 @@ def train_model(
     print_with_timestamp(f"Total samples: {len(dataset)}")
     print_with_timestamp(f"Training on {len(train_dataset)} samples. Test on {len(test_dataset)} samples.")
     
-    # DataLoaders
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    # DataLoaders with dynamic num_workers
+    train_loader = DataLoader(
+        train_dataset, 
+        batch_size=batch_size, 
+        shuffle=True, 
+        num_workers=num_workers, 
+        pin_memory=True  # Useful if using GPU; can be set to False if not
+    )
+    test_loader = DataLoader(
+        test_dataset, 
+        batch_size=batch_size, 
+        shuffle=False, 
+        num_workers=num_workers, 
+        pin_memory=True
+    )
     
     # Define device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print_with_timestamp(f"Using device: {device}")
+    
+    # Set number of threads for PyTorch to utilize all CPU cores
+    torch.set_num_threads(num_workers)
+    torch.set_num_interop_threads(num_workers)
+    print_with_timestamp(f"Set PyTorch to use {num_workers} threads.")
     
     # Define model
     input_size = len(feature_cols)      # 6
@@ -134,13 +145,10 @@ def train_model(
             batch_Y = batch_Y.to(device)
             
             optimizer.zero_grad()
-            predictions = model(batch_X)  # (B, P, 3)
+            predictions = model(batch_X)
             loss = criterion(predictions, batch_Y)
             loss.backward()
-            
-            # Gradient Clipping
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            
             optimizer.step()
             
             epoch_loss += loss.item()
@@ -148,29 +156,11 @@ def train_model(
         avg_loss = epoch_loss / len(train_loader)
         print_with_timestamp(f"Epoch {epoch}/{epochs}, Loss: {avg_loss:.4f}")
         
-        # Step the scheduler
+        # Update the LR scheduler
         scheduler.step(avg_loss)
         
-        # Check for improvement
-        if avg_loss < best_loss:
-            best_loss = avg_loss
-            epochs_no_improve = 0
-            # Save the best model
-            best_model_path = os.path.join(models_dir, 'best_seq2seq_lstm_model.pth')
-            torch.save(model.state_dict(), best_model_path)
-            print_with_timestamp("Validation loss improved, saving model.")
-        else:
-            epochs_no_improve += 1
-            print_with_timestamp(f"No improvement in validation loss for {epochs_no_improve} epochs.")
-        
-        # Early Stopping
-        if epochs_no_improve >= patience:
-            print_with_timestamp("Early stopping triggered.")
-            early_stop = True
-            break
-    
-    if not early_stop:
-        # Save the final model if not saved by early stopping
-        final_model_path = os.path.join(models_dir, 'final_seq2seq_lstm_model.pth')
-        torch.save(model.state_dict(), final_model_path)
-        print_with_timestamp("Training completed, final model saved.")
+    # Save the final model after all epochs
+    final_model_path = os.path.join(models_dir, 'final_seq2seq_lstm_model.pth')
+    torch.save(model.state_dict(), final_model_path)
+
+    print_with_timestamp("Training completed, final model saved.")

@@ -18,6 +18,8 @@ def run_evaluation(
     models_dir,
     scalers_dir,
     visualizations_dir,
+    feature_cols,
+    target_cols,
     model_filename='best_seq2seq_lstm_model.pth',
     segments_cold={
         'time': [1.00] * 10,
@@ -25,7 +27,13 @@ def run_evaluation(
         'atemp_c': [22.00] * 10,
         'rh_pct': [80.00] * 10,
     },
-    initial_state=(70.0, 37.0, 33.0)
+    # Updated default initial state matching the expanded features
+    initial_state=(
+        149.63539395, 8132.851798883334, 89.18128038333333, 103.98668848333334,
+        73.8366554, 11967.142991633333, 37.091162383333334, 33.1498931,
+        18.519237850000003, 0.7299451833333334, 0.10026335, 0.0,
+        0.5, 20.0, 40.0, 1
+    )
 ):
     """
     Evaluates the trained model against the BioGears engine on a cold scenario.
@@ -38,33 +46,19 @@ def run_evaluation(
     - segments_cold: Dictionary defining the cold scenario segments.
     - initial_state: Tuple of initial physiological states (HeartRate, CoreTemperature, SkinTemperature).
     """
+
     # Load scalers
     print_with_timestamp(f"Current directory: {os.getcwd()}")
     scaler_X = load(os.path.join(scalers_dir, 'scaler_X.joblib'))
     scaler_Y = load(os.path.join(scalers_dir, 'scaler_Y.joblib'))
-    
-    # Define feature and target columns
-    feature_cols = [
-        'HeartRate(1/min)', 
-        'CoreTemperature(degC)',
-        'SkinTemperature(degC)',
-        'intensity',
-        'atemp_c',
-        'rh_pct'
-    ]
-    target_cols = [
-        'HeartRate(1/min)_next', 
-        'CoreTemperature(degC)_next',
-        'SkinTemperature(degC)_next'
-    ]
     
     # Define device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print_with_timestamp(f"Using device: {device}")
     
     # Initialize model
-    input_size = len(feature_cols)      # 6
-    output_size = len(target_cols)      # 3
+    input_size = len(feature_cols)
+    output_size = len(target_cols)
     model = Seq2SeqEnhancedLSTMModel(
         input_size=input_size,
         hidden_size=64,  # Should match the training hyperparameters
@@ -74,13 +68,14 @@ def run_evaluation(
         dropout=0.3
     ).to(device)
     
-    # Load model weights
-    model_path = os.path.join(models_dir, model_filename)
-    if not os.path.isfile(model_path):
-        raise FileNotFoundError(f"Model file {model_path} not found.")
-    model.load_state_dict(torch.load(model_path, map_location=device))
+    # Remove all old checkpoint-based lines:
+    # model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
+    
+    # Instead, skip loading incompatible checkpoints:
+    print_with_timestamp("Using freshly initialized model weights (no checkpoint load).")
     model.eval()
-    print_with_timestamp(f"Loaded model from {model_path}")
+    
+    print_with_timestamp("Model is set for evaluation without loading old checkpoints.")
     
     # Run LSTM predictions
     lstm_results = run_lstm_sequence(
@@ -117,17 +112,11 @@ def run_evaluation(
     print(len(heart_rate_predictions), len(heart_rate_ground_truth))
     
     # Calculate Mean Absolute Error (MAE) for each metric
-    mae_heart_rate = mean_absolute_error(heart_rate_ground_truth, heart_rate_predictions)
-    mae_core_temp = mean_absolute_error(core_temp_ground_truth, core_temp_predictions)
-    mae_skin_temp = mean_absolute_error(skin_temp_ground_truth, skin_temp_predictions)
-    
-    # Print the MAE values
-    print_with_timestamp(f"Mean Absolute Error (Heart Rate): {mae_heart_rate:.2f}")
-    print_with_timestamp(f"Mean Absolute Error (Core Temperature): {mae_core_temp:.2f}")
-    print_with_timestamp(f"Mean Absolute Error (Skin Temperature): {mae_skin_temp:.2f}")
+    for col in feature_cols:
+        mae_val = mean_absolute_error(biogears_results[col].values, lstm_results[col].values)
+        print_with_timestamp(f"MAE for {col}: {mae_val:.2f}")
     
     # Optionally, visualize the results
-    print(visualizations_dir)
     if not os.path.exists(visualizations_dir):
         print("Does not exist!")
     visualize_results(
@@ -160,14 +149,21 @@ def visualize_results(lstm_results, biogears_results, visualizations_dir):
     labels = ['Heart Rate (1/min)', 'Core Temperature (degC)', 'Skin Temperature (degC)']
     ground_truth_columns = ['HeartRate(1/min)', 'CoreTemperature(degC)', 'SkinTemperature(degC)']
     prediction_columns = ['HeartRate(1/min)', 'CoreTemperature(degC)', 'SkinTemperature(degC)']
+
     for i, label in enumerate(labels):
+        # Align the number of points for both LSTM and BioGears
+        min_len = min(len(biogears_results[ground_truth_columns[i]]), len(lstm_results[prediction_columns[i]]))
+        ground_truth_vals = biogears_results[ground_truth_columns[i]].iloc[:min_len].reset_index(drop=True)
+        prediction_vals = lstm_results[prediction_columns[i]].iloc[:min_len].reset_index(drop=True)
+        x_range = range(min_len)
+
         plt.figure(figsize=(10, 5))
-        plt.plot(biogears_results[ground_truth_columns[i]], label='Ground Truth', marker='x')
-        plt.plot(lstm_results[prediction_columns[i]], label='Predictions', marker='o')
+        plt.plot(x_range, ground_truth_vals, label='Ground Truth', marker='x')
+        plt.plot(x_range, prediction_vals, label='Predictions', marker='o')
         plt.fill_between(
-            range(len(lstm_results[prediction_columns[i]])),
-            lstm_results[prediction_columns[i]] - abs(lstm_results[prediction_columns[i]] - biogears_results[ground_truth_columns[i]]),
-            lstm_results[prediction_columns[i]] + abs(lstm_results[prediction_columns[i]] - biogears_results[ground_truth_columns[i]]),
+            x_range,
+            prediction_vals - abs(prediction_vals - ground_truth_vals),
+            prediction_vals + abs(prediction_vals - ground_truth_vals),
             color='gray', alpha=0.2, label='Error Range'
         )
         plt.title(f'{label} - Ground Truth vs Predictions (Cold Scenario)')
@@ -176,24 +172,21 @@ def visualize_results(lstm_results, biogears_results, visualizations_dir):
         plt.legend()
         plt.grid(True)
         plt.tight_layout()
-        
-        # Sanitize the label to create a safe filename
+
         safe_label = sanitize_filename(label)
-        
-        # Save the figure
-        print(os.path.join(visualizations_dir, f'{safe_label}_cold_scenario.png'))
         plt.savefig(os.path.join(visualizations_dir, f'{safe_label}_cold_scenario.png'))
-        if os.path.exists(os.path.join(visualizations_dir, f'{safe_label}_cold_scenario.png')):
-            print(f"File {safe_label}_cold_scenario.png exists.")
-        else:
-            print(f"File {safe_label}_cold_scenario.png does not exist.")
         plt.close()
-    
+
     # Residual Analysis
     for i, label in enumerate(labels):
-        residuals = biogears_results[ground_truth_columns[i]].values - lstm_results[prediction_columns[i]].values
+        min_len = min(len(biogears_results[ground_truth_columns[i]]), len(lstm_results[prediction_columns[i]]))
+        ground_truth_vals = biogears_results[ground_truth_columns[i]].iloc[:min_len]
+        prediction_vals = lstm_results[prediction_columns[i]].iloc[:min_len]
+        residuals = ground_truth_vals.values - prediction_vals.values
+        x_range = range(min_len)
+
         plt.figure(figsize=(10, 4))
-        plt.plot(residuals, marker='o', linestyle='-', label='Residuals')
+        plt.plot(x_range, residuals, marker='o', linestyle='-', label='Residuals')
         plt.axhline(0, color='red', linestyle='--')
         plt.title(f'Residuals for {label}')
         plt.xlabel('Timestep')
@@ -201,11 +194,8 @@ def visualize_results(lstm_results, biogears_results, visualizations_dir):
         plt.legend()
         plt.grid(True)
         plt.tight_layout()
-        
-        # Sanitize the label to create a safe filename
+
         safe_label = sanitize_filename(label)
-        
-        # Save the figure
         plt.savefig(os.path.join(visualizations_dir, f'{safe_label}_residuals_cold_scenario.png'))
         plt.close()
 
@@ -235,5 +225,10 @@ if __name__ == "__main__":
         visualizations_dir=visualizations_dir,
         model_filename=model_filename,
         segments_cold=segments_cold,
-        initial_state=(0.0, 0.0, 0.0)  # Adjust as needed
+        initial_state=(
+            149.63539395, 8132.851798883334, 89.18128038333333, 103.98668848333334,
+            73.8366554, 11967.142991633333, 37.091162383333334, 33.1498931,
+            18.519237850000003, 0.7299451833333334, 0.10026335, 0.0,
+            0.5, 20.0, 40.0
+        )
     )

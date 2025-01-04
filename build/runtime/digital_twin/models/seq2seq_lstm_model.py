@@ -10,6 +10,7 @@ class Seq2SeqEnhancedLSTMModel(nn.Module):
         self.hidden_size = hidden_size
         self.num_layers = num_layers
         self.pred_length = pred_length
+        self.output_size = output_size
         self.bidirectional = True
 
         self.lstm = nn.LSTM(
@@ -21,7 +22,7 @@ class Seq2SeqEnhancedLSTMModel(nn.Module):
             bidirectional=self.bidirectional
         )
         self.attention = Attention(hidden_size)
-        self.fc = nn.Linear(hidden_size * 2, output_size * pred_length)  # Output multiple timesteps
+        self.fc = nn.Linear(hidden_size * 2, output_size * pred_length)  # Use output_size instead of 12
 
     def forward(self, x):
         """
@@ -36,5 +37,5 @@ class Seq2SeqEnhancedLSTMModel(nn.Module):
         lstm_out, _ = self.lstm(x)  # lstm_out: (batch_size, seq_length, hidden_size*2)
         context = self.attention(lstm_out)  # (batch_size, hidden_size*2)
         out = self.fc(context)  # (batch_size, output_size * pred_length)
-        out = out.view(-1, self.pred_length, 3)  # (batch_size, pred_length, output_size)
+        out = out.view(-1, self.pred_length, self.output_size)  # (batch_size, pred_length, output_size)
         return out

@@ -3,7 +3,7 @@ import time
 import numpy as np # type: ignore
 
 param_ranges = {
-    'intensity': np.linspace(start=0.25, stop=1.0, num=10).tolist(),
+    'intensity': np.linspace(start=0.0, stop=1.0, num=10).tolist(),
     'atemp_c':   np.linspace(start=20.0, stop=30.0, num=10).tolist(),
     'rh_pct':    np.linspace(start=40.0, stop=80.0, num=10).tolist(),
 }
