@@ -60,6 +60,116 @@ def run_biogears(xml: str, segments: Dict[str, List[float]]) -> pd.DataFrame:
 
     return merged_df
 
+def run_lstm_sequence(model, segments, scaler_X, scaler_Y, seq_length, initial_state=(0.0, 0.0, 0.0), device='cpu') -> pd.DataFrame:
+    """
+    Perform multi-step prediction using the trained LSTM model.
+    Returns a pandas DataFrame similar to run_lstm in execution.py.
+    
+    Parameters:
+    - model: Trained PyTorch model.
+    - segments: Dictionary containing 'time', 'intensity', 'atemp_c', 'rh_pct'.
+    - scaler_X: Fitted StandardScaler for input features.
+    - scaler_Y: Fitted StandardScaler for target features.
+    - seq_length: Number of timesteps in the input sequence.
+    - initial_state: Tuple containing initial physiological states (HeartRate, CoreTemperature, SkinTemperature).
+    - device: Device to run the model on ('cpu' or 'cuda').
+    
+    Returns:
+    - df_predictions: pandas DataFrame with predictions and environmental parameters.
+    """
+    model.eval()
+    times = segments.get('time', [])
+    intensities = segments.get('intensity', [])
+    atemps = segments.get('atemp_c', [])
+    rhs = segments.get('rh_pct', [])
+    n_steps = len(times)
+    
+    if n_steps == 0:
+        raise ValueError("segments['time'] is empty; nothing to infer.")
+    
+    # Initialize records
+    records = {
+        "Time(s)": [], 
+        "HeartRate(1/min)": [], 
+        "CoreTemperature(degC)": [], 
+        "SkinTemperature(degC)": [],
+        "intensity": [], 
+        "atemp_c": [], 
+        "rh_pct": []
+    }
+    
+    # Initial physiological states
+    hr, ct, st = initial_state
+    
+    # Define start offset and time step
+    start_offset = pd.to_timedelta("0 days 00:00:01.020000")
+    one_min = pd.to_timedelta("00:01:00")
+    
+    # Initialize input sequence with initial physiological states and environmental factors
+    input_seq = pd.DataFrame({
+        'HeartRate(1/min)': [hr] * seq_length,
+        'CoreTemperature(degC)': [ct] * seq_length,
+        'SkinTemperature(degC)': [st] * seq_length,
+        'intensity': [intensities[0]] * seq_length,
+        'atemp_c': [atemps[0]] * seq_length,
+        'rh_pct': [rhs[0]] * seq_length,
+    })
+    
+    # Scale the input sequence
+    input_scaled = scaler_X.transform(input_seq)
+    
+    for timestep in range(n_steps):
+        # Current environmental parameters
+        current_intensity = intensities[timestep]
+        current_atemp = atemps[timestep]
+        current_rh = rhs[timestep]
+        
+        # Convert to tensor
+        X_tensor = torch.tensor(input_scaled, dtype=torch.float32).unsqueeze(0).to(device)  # Shape: (1, T, F)
+        
+        with torch.no_grad():
+            pred_scaled = model(X_tensor).cpu().numpy()[0]  # Shape: (P, 3)
+        
+        # Inverse transform the prediction
+        pred = scaler_Y.inverse_transform(pred_scaled)  # Shape: (P, 3)
+        
+        # Use the last prediction for the state
+        hr, ct, st = pred[-1]  # Shape: (3,)
+        
+        # Calculate current time
+        current_time = start_offset + timestep * one_min
+        
+        # Record the last prediction and environmental parameters
+        records["Time(s)"].append(current_time)
+        records["HeartRate(1/min)"].append(hr)
+        records["CoreTemperature(degC)"].append(ct)
+        records["SkinTemperature(degC)"].append(st)
+        records["intensity"].append(current_intensity)
+        records["atemp_c"].append(current_atemp)
+        records["rh_pct"].append(current_rh)
+        
+        # Prepare the new input entry with updated physiological states and current environmental factors
+        new_entry = {
+            'HeartRate(1/min)': hr,
+            'CoreTemperature(degC)': ct,
+            'SkinTemperature(degC)': st,
+            'intensity': current_intensity,
+            'atemp_c': current_atemp,
+            'rh_pct': current_rh,
+        }
+        
+        # Scale the new entry
+        new_entry_scaled = scaler_X.transform(pd.DataFrame([new_entry]))
+        
+        # Update the input sequence by removing the oldest timestep and adding the new entry
+        input_scaled = np.vstack([input_scaled[1:], new_entry_scaled])
+    
+    # Create DataFrame from records
+    df_predictions = pd.DataFrame(records)
+    df_predictions.set_index("Time(s)", inplace=True)
+    
+    return df_predictions
+
 def run_lstm(
     model: torch.nn.Module,
     segments: dict,
@@ -67,67 +177,38 @@ def run_lstm(
     device: str = 'cpu',
     scaler=None
 ) -> pd.DataFrame:
-    """
-    Perform iterative (recurrent) inference of an LSTM model over a 
-    BioGears-like 'segments' dictionary, returning a DataFrame that 
-    follows the format:
-
-        Time(s),HeartRate(1/min),CoreTemperature(degC),SkinTemperature(degC),
-        intensity,atemp_c,rh_pct
-
-    Each row represents a 1-minute increment in time, starting at
-    '0 days 00:00:01.020000'.
-    """
-    model.eval()  # set model to evaluation mode
-
+    model.eval()
     times = segments.get('time', [])
     intensities = segments.get('intensity', [])
     atemps = segments.get('atemp_c', [])
     rhs = segments.get('rh_pct', [])
-
     n_steps = len(times)
     if n_steps == 0:
         raise ValueError("segments['time'] is empty; nothing to infer.")
-
     records = {
-        "Time(s)": [],
-        "HeartRate(1/min)": [],
-        "CoreTemperature(degC)": [],
-        "SkinTemperature(degC)": [],
-        "intensity": [],
-        "atemp_c": [],
-        "rh_pct": []
+        "Time(s)": [], "HeartRate(1/min)": [], "CoreTemperature(degC)": [], "SkinTemperature(degC)": [],
+        "intensity": [], "atemp_c": [], "rh_pct": []
     }
-
     hr, ct, st = initial_state
-
     start_offset = pd.to_timedelta("0 days 00:00:01.020000")
     one_min = pd.to_timedelta("00:01:00")
-
-    # Normalize initial state if scaler is provided
     if scaler:
         initial_df = pd.DataFrame({
-            'HeartRate(1/min)': [hr],
-            'CoreTemperature(degC)': [ct],
-            'SkinTemperature(degC)': [st],
-            'intensity': [0],
-            'atemp_c': [0],
-            'rh_pct': [0],
+            'HeartRate(1/min)': [hr], 'CoreTemperature(degC)': [ct], 'SkinTemperature(degC)': [st],
+            'intensity': [0], 'atemp_c': [0], 'rh_pct': [0],
         })
         scaled_initial_df = pd.DataFrame(scaler.transform(initial_df), columns=initial_df.columns)
         hr = scaled_initial_df['HeartRate(1/min)'].iloc[0]
         ct = scaled_initial_df['CoreTemperature(degC)'].iloc[0]
         st = scaled_initial_df['SkinTemperature(degC)'].iloc[0]
-
     for i in range(n_steps):
+        original_intensity = intensities[i]
+        original_atemp = atemps[i]
+        original_rh = rhs[i]
         if scaler:
             input_df = pd.DataFrame({
-                'HeartRate(1/min)': [hr],
-                'CoreTemperature(degC)': [ct],
-                'SkinTemperature(degC)': [st],
-                'intensity': [intensities[i]],
-                'atemp_c': [atemps[i]],
-                'rh_pct': [rhs[i]],
+                'HeartRate(1/min)': [hr], 'CoreTemperature(degC)': [ct], 'SkinTemperature(degC)': [st],
+                'intensity': [intensities[i]], 'atemp_c': [atemps[i]], 'rh_pct': [rhs[i]],
             })
             scaled_input_df = pd.DataFrame(scaler.transform(input_df), columns=input_df.columns)
             intensity = scaled_input_df['intensity'].iloc[0]
@@ -137,45 +218,36 @@ def run_lstm(
             intensity = intensities[i]
             atemp = atemps[i]
             rh = rhs[i]
-
-        input_tensor = torch.tensor(
-            [[[hr, ct, st, intensity, atemp, rh]]],
-            dtype=torch.float32,
-            device=device
-        )
-
+        input_tensor = torch.tensor([[[hr, ct, st, intensity, atemp, rh]]], dtype=torch.float32, device=device)
         with torch.no_grad():
-            output = model(input_tensor)  
+            output = model(input_tensor)
             pred = output.squeeze(dim=0).squeeze(dim=0)
-
         hr = pred[0].item()
         ct = pred[1].item()
         st = pred[2].item()
-
         if scaler:
             output_df = pd.DataFrame({
-                'HeartRate(1/min)': [hr],
-                'CoreTemperature(degC)': [ct],
-                'SkinTemperature(degC)': [st],
-                'intensity': [0],
-                'atemp_c': [0],
-                'rh_pct': [0],
+                'HeartRate(1/min)': [hr], 'CoreTemperature(degC)': [ct], 'SkinTemperature(degC)': [st],
+                'intensity': [0], 'atemp_c': [0], 'rh_pct': [0],
             })
             descaled_output_df = pd.DataFrame(scaler.inverse_transform(output_df), columns=output_df.columns)
             hr = descaled_output_df['HeartRate(1/min)'].iloc[0]
             ct = descaled_output_df['CoreTemperature(degC)'].iloc[0]
             st = descaled_output_df['SkinTemperature(degC)'].iloc[0]
-
+        intensity = original_intensity
+        atemp = original_atemp
+        rh = original_rh
         current_time = start_offset + i * one_min
         records["Time(s)"].append(current_time)
         records["HeartRate(1/min)"].append(hr)
         records["CoreTemperature(degC)"].append(ct)
         records["SkinTemperature(degC)"].append(st)
-        records["intensity"].append(intensities[i])
-        records["atemp_c"].append(atemps[i])
-        records["rh_pct"].append(rhs[i])
-
+        records["intensity"].append(intensity)
+        records["atemp_c"].append(atemp)
+        records["rh_pct"].append(rh)
     df = pd.DataFrame(records)
+    df['Time(s)'] = pd.to_timedelta(df['Time(s)'])
+    df.set_index("Time(s)", inplace=True)
     return df
 
 def generate_static_synthetic_data(
