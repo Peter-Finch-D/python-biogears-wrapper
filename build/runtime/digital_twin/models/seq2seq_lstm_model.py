@@ -1,5 +1,3 @@
-# digital_twin/models/seq2seq_lstm_model.py
-
 import torch
 import torch.nn as nn
 from digital_twin.models.attention import Attention
@@ -39,3 +37,4 @@ class Seq2SeqEnhancedLSTMModel(nn.Module):
         out = self.fc(context)  # (batch_size, output_size * pred_length)
         out = out.view(-1, self.pred_length, self.output_size)  # (batch_size, pred_length, output_size)
         return out
+

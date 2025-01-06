@@ -1,5 +1,3 @@
-# digital_twin/data_processing.py
-
 import os
 import glob
 import pandas as pd
@@ -12,10 +10,9 @@ from joblib import dump
 from digital_twin.dataset import Seq2SeqPhysioDataset
 from digital_twin.utils import print_with_timestamp, sanitize_filename
 
-
 def load_and_process_data(data_dir, output_csv_path, feature_cols, target_cols, simulation_length=10, seq_length=4, pred_length=5):
     """
-    Loads all CSV files from the specified directory, processes them, and saves the combined DataFrame.
+    Loads all CSV files from the specified directory, processes them to predict changes, and saves the combined DataFrame.
     
     Parameters:
     - data_dir: Directory containing CSV files.
@@ -52,15 +49,15 @@ def load_and_process_data(data_dir, output_csv_path, feature_cols, target_cols, 
         # Drop "Time(s)" column as it's now the index
         if 'Time(s)' in df.columns:
             df.drop(columns=['Time(s)'], inplace=True)
-    
-        # Shift target columns to represent next timestep
+
+        # Compute differences for target columns to represent change
         columns_to_exclude = ['intensity', 'atemp_c', 'rh_pct']
-        columns_to_shift = df.columns.copy()
-        for col in columns_to_shift:
+        columns_to_diff = df.columns.copy()
+        for col in columns_to_diff:
             if col not in columns_to_exclude:
-                df[f'{col}_next'] = df[col].shift(-1)
+                df[f'{col}_diff'] = df[col].diff()
     
-        df.dropna(inplace=True)  # Remove the last row with NaN targets
+        df.dropna(inplace=True)  # Remove the first row with NaN differences
     
         required_columns = feature_cols + target_cols
     
@@ -71,7 +68,7 @@ def load_and_process_data(data_dir, output_csv_path, feature_cols, target_cols, 
         # Store the entire DataFrame (one short sequence)
         all_data.append(df)
     
-    print_with_timestamp(f"Loaded {len(all_data)} files. Each has {len(all_data[0]) if len(all_data) > 0 else 0} rows after shifting.")
+    print_with_timestamp(f"Loaded {len(all_data)} files. Each has {len(all_data[0]) if len(all_data) > 0 else 0} rows after computing differences.")
     
     # Concatenate all data for scaling
     concat_df = pd.concat(all_data, ignore_index=True)
@@ -81,9 +78,8 @@ def load_and_process_data(data_dir, output_csv_path, feature_cols, target_cols, 
     scaler_Y = StandardScaler()
     
     # Fit scalers
-    print("DURING FIT COLUMNS:\n",concat_df.columns)
     scaler_X.fit(concat_df[feature_cols])
-    scaler_Y.fit(concat_df[target_cols])
+    scaler_Y.fit(concat_df[[col for col in target_cols]])
     
     # Save scalers using joblib for later use
     scaler_output_dir = os.path.join(os.path.dirname(output_csv_path), 'scalers')

@@ -24,21 +24,6 @@ output_csv_path = os.path.join(outputs_dir, 'processed_data.csv')
 # Define feature and target columns
 feature_cols = [
     'time_delta',
-    'HeartRate(1/min)', 
-    'CoreTemperature(degC)', 
-    'SkinTemperature(degC)', 
-    'intensity', 
-    'atemp_c', 
-    'rh_pct'
-]
-target_cols = [
-    'HeartRate(1/min)_next', 
-    'CoreTemperature(degC)_next',
-    'SkinTemperature(degC)_next',
-]
-
-feature_cols = [
-    'time_delta',
     'HeartRate(1/min)',
     'CardiacOutput(mL/min)',
     'MeanArterialPressure(mmHg)',
@@ -56,24 +41,70 @@ feature_cols = [
     'rh_pct'
 ]
 target_cols = [
-    'HeartRate(1/min)_next',
-    'CoreTemperature(degC)_next',
-    'SkinTemperature(degC)_next',
-    'CardiacOutput(mL/min)_next',
-    'MeanArterialPressure(mmHg)_next',
-    'SystolicArterialPressure(mmHg)_next',
-    'DiastolicArterialPressure(mmHg)_next',
-    'TotalMetabolicRate(kcal/day)_next',
-    'RespirationRate(1/min)_next',
-    'AchievedExerciseLevel_next',
-    'FatigueLevel_next',
-    'TotalMetabolicRate(W)_next'
+    'HeartRate(1/min)_diff',
+    'CoreTemperature(degC)_diff',
+    'SkinTemperature(degC)_diff',
+    'CardiacOutput(mL/min)_diff',
+    'MeanArterialPressure(mmHg)_diff',
+    'SystolicArterialPressure(mmHg)_diff',
+    'DiastolicArterialPressure(mmHg)_diff',
+    'TotalMetabolicRate(kcal/day)_diff',
+    'RespirationRate(1/min)_diff',
+    'AchievedExerciseLevel_diff',
+    'FatigueLevel_diff',
+    'TotalMetabolicRate(W)_diff'
+]
+
+feature_cols = [
+    'time_delta',
+    'HeartRate(1/min)', 
+    'CoreTemperature(degC)', 
+    'SkinTemperature(degC)', 
+    'intensity', 
+    'atemp_c', 
+    'rh_pct'
+]
+target_cols = [
+    'HeartRate(1/min)_diff', 
+    'CoreTemperature(degC)_diff',
+    'SkinTemperature(degC)_diff',
 ]
 
 # Define model hyperparameters
 
 # ... TODO Implement this
 
+# Define initial state of model
+"""
+initial_state=(
+        1,                      # Time delta
+        127.0920033,            # Heart rate
+        7141.82462835,          # Cardiac output
+        95.62668286666667,      # Mean arterial pressure
+        110.93833814999999,     # Systolic arterial pressure
+        79.2137125,             # Diastolic arterial pressure
+        6852.245369266667,      # Total metabolic rate
+        37.062846533333335,     # Core temperature
+        33.14000563333333,      # Skin temperature
+        17.233677316666668,     # Respiration rate
+        0.7853819333333334,     # Achieved exercise level
+        0.03883333333333334,    # Fatigue level
+        150.00,                    # Total metabolic rate
+        0.25,                   # Exercise intensity
+        22.22222222222222,      # Ambient temperature
+        80.0                    # Relative humidity
+    )
+"""
+
+initial_state = (
+    1,                  # Time delta
+    127,                # Heart rate
+    37.06,              # Core temperature
+    33.14,              # Skin temperature
+    0.25,               # Exercise intensity
+    22.0,               # Ambient temperature
+    80.0                # Relative humidity
+)
 
 """
 # Process the data and save it to a CSV file
@@ -108,4 +139,5 @@ run_evaluation(
     feature_cols=feature_cols,
     target_cols=target_cols,
     model_filename='final_seq2seq_lstm_model.pth',
+    initial_state=initial_state
 )

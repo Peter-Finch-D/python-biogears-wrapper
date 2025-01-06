@@ -27,12 +27,14 @@ def run_evaluation(
         'atemp_c': [22.00] * 10,
         'rh_pct': [80.00] * 10,
     },
-    # Updated default initial state matching the expanded features
-    initial_state=(
-        149.63539395, 8132.851798883334, 89.18128038333333, 103.98668848333334,
-        73.8366554, 11967.142991633333, 37.091162383333334, 33.1498931,
-        18.519237850000003, 0.7299451833333334, 0.10026335, 0.0,
-        0.5, 20.0, 40.0, 1
+    initial_state = (
+        1,                  # Time delta
+        127,                # Heart rate
+        37.06,              # Core temperature
+        33.14,              # Skin temperature
+        0.25,               # Exercise intensity
+        22.0,               # Ambient temperature
+        80.0                # Relative humidity
     )
 ):
     """
@@ -47,8 +49,15 @@ def run_evaluation(
     - initial_state: Tuple of initial physiological states (HeartRate, CoreTemperature, SkinTemperature).
     """
 
+    # Run BioGears for ground truth
+    xml_scenario = segments_to_xml(segments_cold)
+    print_with_timestamp("Using BioGears for ground truth")
+    biogears_results = run_biogears(xml_scenario, segments_cold)
+
+    print("LENGTH OF BIOGEARS RESULTS: ", len(biogears_results))
+    print(biogears_results)
+    
     # Load scalers
-    print_with_timestamp(f"Current directory: {os.getcwd()}")
     scaler_X = load(os.path.join(scalers_dir, 'scaler_X.joblib'))
     scaler_Y = load(os.path.join(scalers_dir, 'scaler_Y.joblib'))
     
@@ -92,13 +101,7 @@ def run_evaluation(
     print("LENGTH OF LSTM RESULTS: ", len(lstm_results))
     print(lstm_results)
     
-    # Run BioGears for ground truth
-    xml_scenario = segments_to_xml(segments_cold)
-    biogears_results = run_biogears(xml_scenario, segments_cold)
     
-    print_with_timestamp("Using BioGears for ground truth")
-    print("LENGTH OF BIOGEARS RESULTS: ", len(biogears_results))
-    print(biogears_results)
     
     # Extract predictions and ground truths
     heart_rate_predictions = lstm_results['HeartRate(1/min)'].values
@@ -113,8 +116,9 @@ def run_evaluation(
     
     # Calculate Mean Absolute Error (MAE) for each metric
     for col in feature_cols:
-        mae_val = mean_absolute_error(biogears_results[col].values, lstm_results[col].values)
-        print_with_timestamp(f"MAE for {col}: {mae_val:.2f}")
+        if col != 'time_delta':
+            mae_val = mean_absolute_error(biogears_results[col].values, lstm_results[col].values)
+            print_with_timestamp(f"MAE for {col}: {mae_val:.2f}")
     
     # Optionally, visualize the results
     if not os.path.exists(visualizations_dir):

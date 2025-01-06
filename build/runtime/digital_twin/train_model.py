@@ -1,5 +1,3 @@
-# digital_twin/train_model.py
-
 import os
 import pandas as pd
 import numpy as np
@@ -12,9 +10,8 @@ from joblib import load
 import multiprocessing  # For determining CPU count
 
 from digital_twin.dataset import Seq2SeqPhysioDataset
-from digital_twin.models import Seq2SeqEnhancedLSTMModel
+from digital_twin.models import Seq2SeqEnhancedLSTMModel, CumulativeLoss
 from digital_twin.utils import print_with_timestamp
-
 
 def train_model(
     processed_csv_path,
@@ -117,8 +114,8 @@ def train_model(
         dropout=dropout
     ).to(device)
     
-    # Define loss and optimizer with Weight Decay
-    criterion = nn.MSELoss()
+    # Define custom cumulative loss function and optimizer with Weight Decay
+    criterion = CumulativeLoss(step_loss_weight=0.5, cumulative_loss_weight=0.5)
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-5)
     
     # Define Learning Rate Scheduler
@@ -144,9 +141,12 @@ def train_model(
             batch_X = batch_X.to(device)
             batch_Y = batch_Y.to(device)
             
+            # Extract initial state from the last time step of the input sequence
+            initial_state = batch_X[:, -1, :output_size]
+            
             optimizer.zero_grad()
             predictions = model(batch_X)
-            loss = criterion(predictions, batch_Y)
+            loss = criterion(predictions, batch_Y, initial_state)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()

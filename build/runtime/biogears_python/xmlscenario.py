@@ -32,17 +32,17 @@ def segments_to_xml(segments):
     data_requests = ET.SubElement(scenario, 'DataRequests')
     data_request_params = [
         {'Name': 'HeartRate', 'Unit': '1/min'},
-        {'Name': 'CardiacOutput', 'Unit': 'mL/min'},
-        {'Name': 'MeanArterialPressure', 'Unit': 'mmHg'},
-        {'Name': 'SystolicArterialPressure', 'Unit': 'mmHg'},
-        {'Name': 'DiastolicArterialPressure', 'Unit': 'mmHg'},
-        {'Name': 'TotalMetabolicRate', 'Unit': 'kcal/day'},
+        #{'Name': 'CardiacOutput', 'Unit': 'mL/min'},
+        #{'Name': 'MeanArterialPressure', 'Unit': 'mmHg'},
+        #{'Name': 'SystolicArterialPressure', 'Unit': 'mmHg'},
+        #{'Name': 'DiastolicArterialPressure', 'Unit': 'mmHg'},
+        #{'Name': 'TotalMetabolicRate', 'Unit': 'kcal/day'},
         {'Name': 'CoreTemperature', 'Unit': 'degC'},
         {'Name': 'SkinTemperature', 'Unit': 'degC'},
-        {'Name': 'RespirationRate', 'Unit': '1/min'},
-        {'Name': 'AchievedExerciseLevel'},
-        {'Name': 'FatigueLevel'},
-        {'Name': 'TotalMetabolicRate', 'Unit': 'W'},
+        #{'Name': 'RespirationRate', 'Unit': '1/min'},
+        #{'Name': 'AchievedExerciseLevel'},
+        #{'Name': 'FatigueLevel'},
+        #{'Name': 'TotalMetabolicRate', 'Unit': 'W'},
         #{'Name': 'TotalWorkRateLevel'}
     ]
     
