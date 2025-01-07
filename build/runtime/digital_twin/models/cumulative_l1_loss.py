@@ -15,8 +15,8 @@ class CumulativeL1Loss(nn.Module):
     def forward(self, predictions, targets, initial_state):
         """
         Args:
-          predictions:   (batch_size, seq_length=9, num_features) predicted changes
-          targets:       (batch_size, seq_length=9, num_features) true changes
+          predictions:   (batch_size, seq_length, num_features) predicted changes
+          targets:       (batch_size, seq_length, num_features) true changes
           initial_state: (batch_size, num_features) initial state before changes
         
         Returns:

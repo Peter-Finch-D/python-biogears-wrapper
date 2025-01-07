@@ -1,7 +1,7 @@
 import os
 import glob
 import pandas as pd
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from joblib import dump
 
 from digital_twin.utils import print_with_timestamp
@@ -40,7 +40,7 @@ def load_and_process_data(data_dir, output_csv_path, feature_cols, target_cols, 
 
         df['time_delta'] = list(range(len(df)))
     
-        assert len(df) == simulation_length, f"Expected {simulation_length} rows, got {len(df)} in {csv_path}"
+        #assert len(df) == simulation_length, f"Expected {simulation_length} rows, got {len(df)} in {csv_path}"
     
         # Drop "Time(s)" column as it's now the index
         if 'Time(s)' in df.columns:
@@ -72,6 +72,9 @@ def load_and_process_data(data_dir, output_csv_path, feature_cols, target_cols, 
     # Separate scalers for inputs and targets
     scaler_X = StandardScaler()
     scaler_Y = StandardScaler()
+
+    #scaler_X = MinMaxScaler()
+    #scaler_Y = MinMaxScaler()
     
     # Fit scalers
     scaler_X.fit(concat_df[feature_cols])
