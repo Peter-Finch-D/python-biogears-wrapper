@@ -140,6 +140,75 @@ def run_lstm_sequence(model, segments, scaler_X, scaler_Y, seq_length, initial_s
 
     return df_predictions
 
+def run_simple_nn(model, segments, scaler_X, scaler_Y, seq_length, initial_state, device='cpu') -> pd.DataFrame:
+    """
+    Runs a simple feed-forward network with a sequence-like approach,
+    mirroring run_lstm_sequence logic, returning a DataFrame of predictions.
+    """
+    model.eval()
+    times = segments.get('time', [])
+    intensities = segments.get('intensity', [])
+    atemps = segments.get('atemp_c', [])
+    rhs = segments.get('rh_pct', [])
+    n_steps = len(times)
+
+    if len(initial_state) != 7:
+        raise ValueError(f"Expected 7 values in initial_state, got {len(initial_state)}.")
+
+    feature_cols = [
+        'time_delta',
+        'HeartRate(1/min)',
+        'CoreTemperature(degC)',
+        'SkinTemperature(degC)',
+        'intensity',
+        'atemp_c',
+        'rh_pct'
+    ]
+    target_cols = [
+        'HeartRate(1/min)_diff',
+        'CoreTemperature(degC)_diff',
+        'SkinTemperature(degC)_diff'
+    ]
+    records = {col: [] for col in feature_cols}
+    records["Time(s)"] = []
+
+    init_dict = dict(zip(feature_cols, initial_state))
+    input_seq = pd.DataFrame([init_dict] * seq_length, columns=feature_cols)
+    input_scaled = scaler_X.transform(input_seq)
+
+    start_offset = pd.to_timedelta("0 days 00:00:01.000000")
+    one_min = pd.to_timedelta("00:01:00")
+
+    for t in range(n_steps):
+        X_tensor = torch.tensor(input_scaled[-1], dtype=torch.float32).unsqueeze(0).to(device)
+        with torch.no_grad():
+            pred_scaled = model(X_tensor).cpu().numpy()[0]
+
+        pred_diff_inv = scaler_Y.inverse_transform([pred_scaled])[0]
+
+        new_pred_state = {
+            col.replace('_diff', ''): input_seq.iloc[-1][col.replace('_diff', '')] + pred_diff_inv[i]
+            for i, col in enumerate(target_cols)
+        }
+        new_pred_state['intensity'] = intensities[t]
+        new_pred_state['atemp_c'] = atemps[t]
+        new_pred_state['rh_pct'] = rhs[t]
+        new_pred_state['time_delta'] = t
+
+        current_time = start_offset + t * one_min
+        records["Time(s)"].append(current_time)
+        for fc in feature_cols:
+            records[fc].append(new_pred_state.get(fc, input_seq.iloc[-1][fc]))
+
+        new_row_df = pd.DataFrame([new_pred_state], columns=feature_cols)
+        new_row_scaled = scaler_X.transform(new_row_df)
+
+        input_scaled = np.vstack([input_scaled[1:], new_row_scaled])
+
+    df_predictions = pd.DataFrame(records)
+    df_predictions.set_index("Time(s)", inplace=True)
+    return df_predictions
+
 def run_lstm(
     model: torch.nn.Module,
     segments: dict,

@@ -1,14 +1,10 @@
 import os
 import glob
 import pandas as pd
-import numpy as np
 from sklearn.preprocessing import StandardScaler
-import re
-from datetime import datetime
 from joblib import dump
 
-from digital_twin.dataset import Seq2SeqPhysioDataset
-from digital_twin.utils import print_with_timestamp, sanitize_filename
+from digital_twin.utils import print_with_timestamp
 
 def load_and_process_data(data_dir, output_csv_path, feature_cols, target_cols, simulation_length=10, seq_length=4, pred_length=5):
     """
@@ -80,6 +76,10 @@ def load_and_process_data(data_dir, output_csv_path, feature_cols, target_cols, 
     # Fit scalers
     scaler_X.fit(concat_df[feature_cols])
     scaler_Y.fit(concat_df[[col for col in target_cols]])
+
+    # Transform the feature and target columns using the fitted scalers
+    concat_df[feature_cols] = scaler_X.transform(concat_df[feature_cols])
+    concat_df[target_cols] = scaler_Y.transform(concat_df[target_cols])
     
     # Save scalers using joblib for later use
     scaler_output_dir = os.path.join(os.path.dirname(output_csv_path), 'scalers')
@@ -91,7 +91,7 @@ def load_and_process_data(data_dir, output_csv_path, feature_cols, target_cols, 
     concat_df.to_csv(output_csv_path, index=False)
     print_with_timestamp(f"Processed data saved to {output_csv_path}")
     
-    return scaler_X, scaler_Y
+    return concat_df, scaler_X, scaler_Y
 
 if __name__ == "__main__":
     # Define directories

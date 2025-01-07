@@ -12,7 +12,7 @@ from digital_twin.models import Seq2SeqEnhancedLSTMModel
 from digital_twin.utils import print_with_timestamp, sanitize_filename
 
 from biogears_python.xmlscenario import segments_to_xml
-from biogears_python.execution import run_biogears, run_lstm_sequence
+from biogears_python.execution import run_biogears, run_lstm_sequence, run_simple_nn
 
 def run_evaluation(
     models_dir,
@@ -86,6 +86,7 @@ def run_evaluation(
     
     print_with_timestamp("Model is set for evaluation without loading old checkpoints.")
     
+    """
     # Run LSTM predictions
     lstm_results = run_lstm_sequence(
         model, 
@@ -96,7 +97,18 @@ def run_evaluation(
         initial_state=initial_state, 
         device=device
     )
-    
+    """
+
+    lstm_results = run_simple_nn(
+        model, 
+        segments_cold, 
+        scaler_X, 
+        scaler_Y, 
+        seq_length=4, 
+        initial_state=initial_state, 
+        device=device
+    )
+
     print_with_timestamp("Model test run on cold scenario segments")
     print("LENGTH OF LSTM RESULTS: ", len(lstm_results))
     print(lstm_results)
