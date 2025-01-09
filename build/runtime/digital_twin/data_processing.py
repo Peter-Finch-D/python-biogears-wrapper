@@ -78,7 +78,7 @@ def load_and_process_data(data_dir, output_csv_path, feature_cols, target_cols, 
         all_data.append(df)
     
     print_with_timestamp(f"Loaded {len(all_data)} files. Each has {len(all_data[0]) if len(all_data) > 0 else 0} rows after computing differences.")
-    
+    results['sequence_length'] = len(all_data[0])
     # Concatenate all data for scaling
     concat_df = pd.concat(all_data, ignore_index=True)
     
