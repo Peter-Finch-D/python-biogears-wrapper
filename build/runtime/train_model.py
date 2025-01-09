@@ -175,7 +175,8 @@ def train_transformer_nn(
 
 
     #model = SimpleRegressor(input_dim=d_model, hidden_dim=64)
-    model = MoreAdvancedRegressor(input_dim=d_model, hidden_dims=[128, 64, 32], dropout=0.2)
+    hs = 1024
+    model = MoreAdvancedRegressor(input_dim=d_model, hidden_dims=[hs], dropout=0.1)
     print("\nCreated SimpleRegressor model:")
     print(model)
 

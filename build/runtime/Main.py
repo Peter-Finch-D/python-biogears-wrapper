@@ -289,4 +289,16 @@ train_transformer_nn(
     target_cols=target_cols
 )
 
+"""
+bg_df = pd.read_csv(outputs_dir + '/biogears_results.csv')
 # Now evaluate the model
+from my_prediction_module import predict_skin_temperature_recurrently
+initial_state = (1, 33, 0.25, 30, 30)
+predictions, mae = predict_skin_temperature_recurrently(
+    initial_state=initial_state,
+    df=bg_df,
+    model_path="outputs/models/simple_regressor.pt",
+    predict_delta=True  # or False, depending on your model,
+)
+print("MAE:", mae)
+"""
