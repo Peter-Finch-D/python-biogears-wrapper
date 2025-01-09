@@ -178,7 +178,6 @@ class TimeSeriesTransformerEncoder(nn.Module):
         encoded = self.transformer_encoder(x)  # (batch_size, seq_length, d_model)
         return encoded
 
-
 ###############################################################################
 # 4. Instantiate and run the Transformer Encoder to encode our data
 ###############################################################################
@@ -290,3 +289,4 @@ train_transformer_nn(
     target_cols=target_cols
 )
 
+# Now evaluate the model

@@ -13,8 +13,8 @@ def train_transformer_nn(
     processed_csv_path: str,
     feature_cols: list,
     target_cols: list,
-    outputs_dir: str = "outputs",
-    epochs: int = 5,
+    outputs_dir: str = "outputs/models/",
+    epochs: int = 100,
     learning_rate: float = 1e-3,
 ):
     """
@@ -125,8 +125,57 @@ def train_transformer_nn(
 
         def forward(self, x):
             return self.net(x).squeeze()  # returns shape (batch,)
+        
+    class MoreAdvancedRegressor(nn.Module):
+        def __init__(self, input_dim, hidden_dims=[128, 64, 32], dropout=0.2):
+            """
+            A more advanced feed-forward regressor:
+            - Multiple hidden layers
+            - Batch normalization
+            - Dropout
+            
+            Parameters:
+            -----------
+            input_dim : int
+                Dimensionality of the input features.
+            hidden_dims : list of ints
+                Sizes of the hidden layers.
+            dropout : float
+                Dropout probability (default: 0.2).
+            """
+            super(MoreAdvancedRegressor, self).__init__()
+            
+            layers = []
+            in_dim = input_dim
+            
+            for hd in hidden_dims:
+                # Linear layer
+                layers.append(nn.Linear(in_dim, hd))
+                # Batch normalization for stable training
+                layers.append(nn.BatchNorm1d(hd))
+                # Non-linear activation
+                layers.append(nn.ReLU())
+                # Dropout to help prevent overfitting
+                layers.append(nn.Dropout(dropout))
+                in_dim = hd
+            
+            # Final layer outputs a single value for regression
+            layers.append(nn.Linear(in_dim, 1))
+            
+            # Wrap everything in nn.Sequential
+            self.net = nn.Sequential(*layers)
 
-    model = SimpleRegressor(input_dim=d_model, hidden_dim=64)
+        def forward(self, x):
+            """
+            Forward pass.
+            x shape: (batch_size, input_dim)
+            Returns: (batch_size,) if we squeeze the output
+            """
+            return self.net(x).squeeze()
+
+
+    #model = SimpleRegressor(input_dim=d_model, hidden_dim=64)
+    model = MoreAdvancedRegressor(input_dim=d_model, hidden_dims=[128, 64, 32], dropout=0.2)
     print("\nCreated SimpleRegressor model:")
     print(model)
 
