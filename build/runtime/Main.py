@@ -4,12 +4,13 @@ import pandas as pd
 import numpy as np
 import os
 from digital_twin.data_processing import load_and_process_data
-import xgboost as xgb
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.ensemble import RandomForestRegressor
 
 from biogears_python.execution import run_biogears
 from biogears_python.xmlscenario import segments_to_xml
+from sklearn.metrics import mean_absolute_error
 
 # Define directories
 data_dir = '/opt/biogears/core/build/runtime/simulation_results/'
@@ -43,7 +44,7 @@ initial_state = (
 )
 
 # Define the exercise trial for the testing of the model run function
-n_segments = 20
+n_segments = 10
 segments_cool_humid={
     'time': [1.00] * n_segments,
     'intensity': [0.25] * n_segments,
@@ -68,20 +69,11 @@ y = results['df'][target_cols]
 # Split data
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-# Train XGBoost with custom loss function
-xg_reg = xgb.XGBRegressor(n_estimators=10000, max_depth=8, learning_rate=0.1, random_state=42, objective='reg:squarederror')
-xg_reg.fit(X_train, y_train)
+# Train Random Forest
+rf_reg = RandomForestRegressor(n_estimators=100, max_depth=12, random_state=42)
+rf_reg.fit(X_train, y_train)
 
-# Save model
-model_save_path = 'outputs/models/xgb_model.json'
-xg_reg.save_model(model_save_path)
-
-# Evaluate model
-y_pred = xg_reg.predict(X_test)
-mse = mean_squared_error(y_test, y_pred)
-r2 = r2_score(y_test, y_pred)
-
-pred = xg_reg.predict(np.array([initial_state]))
+pred = rf_reg.predict(np.array([initial_state]))
 
 preds = []
 
@@ -96,27 +88,32 @@ for i in range(len(segments_cool_humid['time'])):
     # Store results
     state = (state_td, state_int, state_atemp, state_rh)
 
-    pred = xg_reg.predict(np.array([state]))
+    pred = rf_reg.predict(np.array([state]))
     preds.append(pred)
 
     print("State after segment", i+1, ":", pred)
 
 #print("MSE:", mse, " R²:", r2)
 
-#biogears_df = pd.read_csv(outputs_dir + '/bg_results.csv')
-xml = segments_to_xml(segments_cool_humid)
-biogears_df = run_biogears(xml, segments_cool_humid)
-biogears_df.to_csv("outputs/biogears_results.csv")
+# Convert predictions to a flat list
+predicted_skin_temp = [p[0] for p in preds]
+
+biogears_df = pd.read_csv(outputs_dir + '/biogears_results.csv')
+#xml = segments_to_xml(segments_cool_humid)
+#biogears_df = run_biogears(xml, segments_cool_humid)
+#biogears_df.to_csv("outputs/biogears_results.csv")
 
 print(biogears_df)
+# Calculate mean absolute error
+mae = mean_absolute_error(biogears_df['SkinTemperature(degC)'], predicted_skin_temp)
+print("Mean Absolute Error:", mae)
 
 import matplotlib.pyplot as plt
 
 # Extract skin temperature from biogears results
 biogears_skin_temp = biogears_df['SkinTemperature(degC)']
 
-# Convert predictions to a flat list
-predicted_skin_temp = [p[0] for p in preds]
+
 
 # Plot the results
 plt.figure(figsize=(10, 6))
