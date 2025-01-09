@@ -12,6 +12,9 @@ from biogears_python.execution import run_biogears
 from biogears_python.xmlscenario import segments_to_xml
 from sklearn.metrics import mean_absolute_error
 
+# import lightgbm as lgb
+# import ydf
+
 # Define directories
 data_dir = '/opt/biogears/core/build/runtime/simulation_results/'
 outputs_dir = 'outputs'
@@ -27,17 +30,19 @@ output_csv_path = os.path.join(outputs_dir, 'processed_data.csv')
 # Define feature and target columns
 feature_cols = [
     'time_delta',
+    'SkinTemperature(degC)',
     'intensity', 
     'atemp_c', 
     'rh_pct'
 ]
 target_cols = [
-    'SkinTemperature(degC)_next'
+    'SkinTemperature(degC)_diff'
 ]
 
 # Define initial state of model
 initial_state = (
     1,
+    33,
     0.25,
     22.0,
     90.0
@@ -58,22 +63,15 @@ results = load_and_process_data(
     output_csv_path=output_csv_path,
     feature_cols=feature_cols,
     target_cols=target_cols,
-    next=True,
+    diff=True,
     time_deltas=True
 )
 
-# Prepare data
-X = results['df'][feature_cols]
-y = results['df'][target_cols]
+df = results['df']
 
-# Split data
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
-# Train Random Forest
-rf_reg = RandomForestRegressor(n_estimators=100, max_depth=12, random_state=42)
-rf_reg.fit(X_train, y_train)
-
-pred = rf_reg.predict(np.array([initial_state]))
+model = RandomForestRegressor()
+model.fit(df[feature_cols], df[target_cols[0]])
+pred = model.predict(np.array([initial_state]))
 
 preds = []
 
@@ -81,22 +79,25 @@ state = initial_state
 for i in range(len(segments_cool_humid['time'])):
     # Construct new state by adding the predicted deltas
     state_td  = state[0] + 1
+    print(state[1], pred[0])
+    state_st = state[1] + pred[0]
     state_int = segments_cool_humid['intensity'][i]
     state_atemp = segments_cool_humid['atemp_c'][i]
     state_rh   = segments_cool_humid['rh_pct'][i]
 
     # Store results
-    state = (state_td, state_int, state_atemp, state_rh)
+    state = (state_td, state_st, state_int, state_atemp, state_rh)
 
-    pred = rf_reg.predict(np.array([state]))
-    preds.append(pred)
+    pred = model.predict(np.array([state]))
+    preds.append(state_st)
 
     print("State after segment", i+1, ":", pred)
 
 #print("MSE:", mse, " R²:", r2)
 
 # Convert predictions to a flat list
-predicted_skin_temp = [p[0] for p in preds]
+#predicted_skin_temp = [p[0] for p in preds]
+predicted_skin_temp = preds
 
 biogears_df = pd.read_csv(outputs_dir + '/biogears_results.csv')
 #xml = segments_to_xml(segments_cool_humid)
