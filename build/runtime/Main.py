@@ -280,25 +280,49 @@ print(f"The encoded data was saved to: {os.path.join(outputs_dir, 'transformer_e
 
 print("\n--- Transformer Encoding Complete ---")
 
-encoded_data_path = os.path.join(outputs_dir, 'transformer_encoded_data.pt')
+from my_transformer import TransformerRegressor
 
-train_transformer_nn(
-    encoded_data_path=encoded_data_path,
-    processed_csv_path=output_csv_path,
+# Example hyperparameters:
+model = TransformerRegressor(
     feature_cols=feature_cols,
-    target_cols=target_cols
+    target_cols=target_cols,
+    nhead=4,
+    num_layers=2,
+    dim_feedforward=128,
+    dropout=0.1,
+    hidden_dims=[1024, 512, 256],
+    outputs_dir="outputs/models"
 )
 
-"""
+# data_x_tensor is your reshaped (num_simulations, seq_length, num_features) data
+# df is your processed DataFrame
+model.train_model(
+    #data_x_tensor=data_x_tensor,
+    df=df,
+    seq_length=1,
+    #feature_cols=feature_cols,
+    #target_cols=target_cols,
+    epochs=200,
+    learning_rate=1e-3,
+    test_split=0.2
+)
+
+# Suppose you have a DataFrame 'bg_df' with columns:
+#   Time(s), SkinTemperature(degC), intensity, atemp_c, rh_pct
+initial_state = (0, 33.0, 0.25, 30.0, 30.0)
+
 bg_df = pd.read_csv(outputs_dir + '/biogears_results.csv')
-# Now evaluate the model
-from my_prediction_module import predict_skin_temperature_recurrently
-initial_state = (1, 33, 0.25, 30, 30)
-predictions, mae = predict_skin_temperature_recurrently(
+preds, mae = model.evaluate_model(
     initial_state=initial_state,
     df=bg_df,
-    model_path="outputs/models/simple_regressor.pt",
-    predict_delta=True  # or False, depending on your model,
+    scaler_X=scaler_X,
+    scaler_Y=scaler_Y,
+    time_col='Time(s)',
+    skin_temp_col='SkinTemperature(degC)',
+    intensity_col='intensity',
+    atemp_col='atemp_c',
+    rh_col='rh_pct',
+    predict_delta=True,   # or False, depending on how you trained
+    plot_results=True
 )
-print("MAE:", mae)
-"""
+print("Final MAE:", mae)
