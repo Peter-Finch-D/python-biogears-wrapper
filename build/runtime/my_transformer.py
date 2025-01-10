@@ -239,9 +239,9 @@ class TransformerRegressor(nn.Module):
         df,
         scaler_X,
         scaler_Y,
+        target_col,
         # Column names in df
         time_col='Time(s)',
-        skin_temp_col='SkinTemperature(degC)',
         intensity_col='intensity',
         atemp_col='atemp_c',
         rh_col='rh_pct',
@@ -308,7 +308,7 @@ class TransformerRegressor(nn.Module):
         
         # 1. Sort the DataFrame by time if necessary
         df_sorted = df.sort_values(by=time_col).reset_index(drop=True)
-        ground_truth = df_sorted[skin_temp_col].values  # in real (unscaled) units
+        ground_truth = df_sorted[target_col].values  # in real (unscaled) units
 
         # 2. Keep an *unscaled* 'state' that we update each iteration
         #    initial_state is in real units, e.g. (time_delta=1, skin_temp=33.0, ...).
