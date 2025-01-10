@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.optim as optim
 from sklearn.metrics import mean_absolute_error
 import matplotlib.pyplot as plt
-
+plt.style.use('dark_background') # Dark mode to be cool 😎
 
 ###############################################################################
 # 1. Positional Encoding
@@ -37,25 +37,14 @@ class PositionalEncoding(nn.Module):
         x = x + self.pe[:, :seq_len, :]
         return x
 
-
 ###############################################################################
 # 2. Combined Transformer + Regressor
 ###############################################################################
 class TransformerRegressor(nn.Module):
-    """
-    A single model that:
-      - Projects input features to d_model (optionally auto-calculated)
-      - Adds positional encoding
-      - Passes through a multi-layer Transformer encoder
-      - Applies a feed-forward "head" to produce a single regression output
-
-    Also includes a 'train_model' method with a 'seq_length' argument
-    that reshapes your DataFrame into (num_simulations, seq_length, input_dim).
-    """
     def __init__(
         self,
         feature_cols=None,  # so we can auto-calculate input_dim & optional d_model
-        target_cols=None,   # not strictly needed for d_model, but can be used if you like
+        target_cols=None,   # needed to know how many outputs we produce
         d_model=None,       # if None, we'll compute from input_dim
         nhead=4,
         num_layers=2,
@@ -67,19 +56,24 @@ class TransformerRegressor(nn.Module):
         """
         If d_model is None, we'll auto-calculate it as `input_dim * 4` or something similar.
         We also derive input_dim from len(feature_cols).
+        The final layer dimension is len(target_cols).
         """
         super().__init__()
         
         # Make sure we have feature_cols
-        if feature_cols is None or len(feature_cols) == 0:
+        if not feature_cols:
             raise ValueError("Please provide feature_cols so we can determine input_dim.")
+        if not target_cols:
+            raise ValueError("Please provide target_cols so we can determine output_dim.")
 
         self.feature_cols = feature_cols
-        self.target_cols  = target_cols or []
+        self.target_cols  = target_cols
 
         input_dim = len(self.feature_cols)
+        output_dim = len(self.target_cols)  # number of targets we want to predict
+
+        # If d_model is None, pick a simple rule-of-thumb
         if d_model is None:
-            # Example: pick a rule of thumb for d_model
             d_model = input_dim * 4
             print(f"[INFO] d_model not provided; using d_model={d_model} (input_dim={input_dim}*4).")
 
@@ -102,7 +96,7 @@ class TransformerRegressor(nn.Module):
         )
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
 
-        # 4) A feed-forward "head" to go from d_model -> single value
+        # 4) A feed-forward "head" to go from d_model -> output_dim (multi-target)
         layers = []
         in_dim = d_model
         for hd in hidden_dims:
@@ -111,13 +105,13 @@ class TransformerRegressor(nn.Module):
             layers.append(nn.Dropout(dropout))
             in_dim = hd
         
-        layers.append(nn.Linear(in_dim, 1))  # final regression output
+        layers.append(nn.Linear(in_dim, output_dim))  # final regression output (multi-target)
         self.regressor = nn.Sequential(*layers)
 
     def forward(self, x):
         """
         x shape: (batch_size, seq_len, input_dim)
-        Returns: a single scalar per example in the batch (shape: (batch_size,))
+        Returns: shape (batch_size, output_dim)
         """
         # 1) Project input features
         x = self.input_projection(x)  # (batch_size, seq_len, d_model)
@@ -128,12 +122,12 @@ class TransformerRegressor(nn.Module):
         # 3) Transformer
         encoded = self.transformer_encoder(x)  # (batch_size, seq_len, d_model)
 
-        # 4) Take the final time step (example) or you could average
+        # 4) Take the final time step or average
         last_step = encoded[:, -1, :]  # (batch_size, d_model)
 
-        # 5) Regressor head
-        out = self.regressor(last_step)  # (batch_size, 1)
-        return out.squeeze(dim=-1)       # (batch_size,)
+        # 5) Regressor head => (batch_size, output_dim)
+        out = self.regressor(last_step)
+        return out  # shape: (batch_size, len(target_cols))
 
     ###########################################################################
     # 3. Internal training method (with seq_length argument)
@@ -141,67 +135,71 @@ class TransformerRegressor(nn.Module):
     def train_model(
         self,
         df,
-        seq_length=19,      # <--- NEW: adjustable sequence length
+        seq_length=19,      # adjustable sequence length
         epochs=10,
         learning_rate=1e-3,
         test_split=0.2,
         shuffle=False
     ):
         """
-        Train this TransformerRegressor on the provided df.
+        Train this TransformerRegressor on the provided df, with multiple targets.
 
-        We'll:
-          1) Derive data_x_tensor from df[feature_cols].
-          2) Reshape into (num_sims, seq_length, input_dim).
-          3) Derive target from df[target_cols], also reshaped to (num_sims, seq_length).
-          4) Use the final time step as the label for each simulation.
+        Steps:
+         1) We reshape 'df[feature_cols]' into (num_sims, seq_length, input_dim).
+         2) We do the same with 'df[target_cols]' => shape: (num_sims, seq_length, num_targets).
+         3) We take the final time-step for each simulation => shape: (num_sims, num_targets).
         """
         if len(self.feature_cols) == 0:
             raise ValueError("feature_cols is empty or None. Please set it in the constructor.")
         if len(self.target_cols) == 0:
-            raise ValueError("No target_cols provided. Please pass them in the constructor.")
+            raise ValueError("No target_cols provided. Please set them in the constructor.")
 
-        target_col = self.target_cols[0]  # assume single target
-
-        # Make sure total rows in df is divisible by seq_length
+        # Make sure total_rows is divisible by seq_length
         total_rows = df.shape[0]
         if total_rows % seq_length != 0:
             raise ValueError(
-                f"DataFrame has {total_rows} rows, not divisible by seq_length={seq_length}. "
-                "Adjust seq_length or your data."
+                f"DataFrame has {total_rows} rows, which isn't divisible by seq_length={seq_length}. "
+                "Adjust seq_length or your data so it divides evenly."
             )
 
         # 1) Reshape features -> (num_sims, seq_length, input_dim)
         input_dim = len(self.feature_cols)
+        num_targets = len(self.target_cols)
         num_sims = total_rows // seq_length
 
         data_x = df[self.feature_cols].values  # shape: (total_rows, input_dim)
         data_x = data_x.reshape(num_sims, seq_length, input_dim)
         data_x_tensor = torch.tensor(data_x, dtype=torch.float32)
 
-        # 2) Reshape target -> (num_sims, seq_length), then take final step as label
-        target_array = df[target_col].values.reshape(num_sims, seq_length)
-        y_final = target_array[:, -1]  # shape: (num_sims,)
+        # 2) Reshape targets -> (num_sims, seq_length, num_targets),
+        #    then take final time step => shape (num_sims, num_targets)
+        data_y = df[self.target_cols].values  # shape: (total_rows, num_targets)
+        data_y = data_y.reshape(num_sims, seq_length, num_targets)
+        # Take the final time-step for each simulation
+        # => shape (num_sims, num_targets)
+        y_final = data_y[:, -1, :]  # final step
         y_tensor = torch.tensor(y_final, dtype=torch.float32)
 
         # 3) Train/test split
         indices = np.arange(num_sims)
         if shuffle:
             np.random.shuffle(indices)
+
         train_size = int((1 - test_split) * num_sims)
         train_idx = indices[:train_size]
         test_idx  = indices[train_size:]
 
-        x_train = data_x_tensor[train_idx]  # shape: (train_size, seq_length, input_dim)
-        y_train = y_tensor[train_idx]       # shape: (train_size,)
+        x_train = data_x_tensor[train_idx]  # (train_size, seq_length, input_dim)
+        y_train = y_tensor[train_idx]       # (train_size, num_targets)
         x_test  = data_x_tensor[test_idx]
         y_test  = y_tensor[test_idx]
 
-        print("\n--- Starting TransformerRegressor Training ---")
+        print("\n--- Starting TransformerRegressor Training (Multi-Target) ---")
         print(f"Train size: {len(train_idx)}, Test size: {len(test_idx)}")
         print(f"Input shape: {x_train.shape}, Target shape: {y_train.shape}")
 
         # 4) Define loss and optimizer
+        #    MSELoss can handle multi-target shape => (batch_size, num_targets)
         criterion = nn.MSELoss()
         optimizer = optim.Adam(self.parameters(), lr=learning_rate)
 
@@ -209,7 +207,7 @@ class TransformerRegressor(nn.Module):
         self.train()
         for epoch in range(epochs):
             optimizer.zero_grad()
-            y_pred = self(x_train)  # forward => shape: (train_size,)
+            y_pred = self(x_train)       # shape: (train_size, num_targets)
             loss = criterion(y_pred, y_train)
             loss.backward()
             optimizer.step()
@@ -220,7 +218,7 @@ class TransformerRegressor(nn.Module):
         # 6) Evaluate on test set
         self.eval()
         with torch.no_grad():
-            y_pred_test = self(x_test)
+            y_pred_test = self(x_test)   # (test_size, num_targets)
             test_loss = criterion(y_pred_test, y_test)
         print(f"\nTest MSE: {test_loss.item():.6f}")
 
@@ -239,61 +237,60 @@ class TransformerRegressor(nn.Module):
         df,
         scaler_X,
         scaler_Y,
-        target_col,
-        # Column names in df
+        # The columns in df that are being predicted (multiple!)
+        target_cols=None,
+        # If your input has time_col, intensity_col, etc. to be updated each step:
         time_col='Time(s)',
-        intensity_col='intensity',
-        atemp_col='atemp_c',
-        rh_col='rh_pct',
-        # Model interpretation
-        predict_delta=True,
+        # If you want to pass in columns that update each step for the rest of the state:
+        extra_feature_cols=None,  # e.g. ['intensity', 'atemp_c', 'rh_pct']
+        # Indicate whether each target is delta or absolute:
+        predict_delta_mask=None,
         # Output/visualization
         outputs_dir='outputs',
         visualizations_dir='visualizations',
         plot_results=True
     ):
         """
-        Recurrently predict skin temperature from an initial state, using this
-        TransformerRegressor, applying scaler_X/scaler_Y to ensure consistent
-        input/output scaling as in training.
+        Step-by-step evaluation for multi-target outputs.
 
-        Parameters
-        ----------
-        initial_state : tuple or list
-            The starting state in *unscaled real units*, e.g.:
-            (time_delta, skin_temperature, intensity, atemp_c, rh_pct).
-            This must match the order of columns used in feature_cols.
+        Arguments
+        ---------
+        initial_state : list or array
+            The starting state in *unscaled* real units, matching self.feature_cols in order.
+            e.g. if self.feature_cols = ['time_delta','SkinTemperature(degC)','intensity','atemp_c','rh_pct']
+            then initial_state might be [0, 33.0, 0.25, 30.0, 30.0].
         df : pd.DataFrame
-            DataFrame containing time steps and target columns to compare against.
-            Must include skin_temp_col, intensity_col, etc.
-        scaler_X : sklearn scaler (for features)
-            The same scaler used to transform the input features (time_delta, skin_temp, etc.)
-            during training.
-        scaler_Y : sklearn scaler (for the target)
-            The same scaler used to transform the target (e.g. the difference in skin temp)
-            during training.
+            DataFrame containing the features that might get updated each step
+            (like time, intensity, etc.) and the ground-truth columns for multiple targets.
+        scaler_X : sklearn scaler
+            For scaling the input features (the same used during training).
+        scaler_Y : sklearn scaler
+            For scaling the multiple targets. Must handle shape (N, n_targets).
+        target_cols : list of str
+            The columns in df that the model is predicting. E.g. ['SkinTemperature(degC)_diff', 'HeartRate(1/min)_diff'].
         time_col : str
-            Column name for time in df (default 'Time(s)').
-        skin_temp_col : str
-            Column name for the ground-truth skin temperature in df (default 'SkinTemperature(degC)').
-        intensity_col, atemp_col, rh_col : str
-            Columns for intensity, ambient temp, humidity.
-        predict_delta : bool
-            If True, the model’s output is interpreted as a scaled *delta* in skin temp.
-            If False, it is interpreted as a scaled *absolute temperature*.
+            Name of the time column in df (if any). Used if you sort or track time step by step.
+        extra_feature_cols : list of str
+            Columns you read from df each step to update the input state (excluding the target columns).
+            For instance, ['intensity','atemp_c','rh_pct'] if those change each row.
+        predict_delta_mask : list of bool
+            If you have multiple targets, you might specify for each target whether it’s a delta or absolute.
+            e.g. [True, False] if the first target is a delta, second is absolute. Must match len(target_cols).
+            If None, we assume all are deltas or all are absolute (you can tweak logic below).
         outputs_dir : str
-            Directory for saving results.
+            Directory where results can be saved.
         visualizations_dir : str
-            Directory for saving plots.
+            Directory where to save the plot.
         plot_results : bool
-            If True, will plot a line chart comparing predictions vs. ground truth.
+            If True, plots line charts for each target vs. its ground truth.
 
         Returns
         -------
-        preds : list
-            List of predicted skin temperatures in real units (one per row in df).
-        mae : float
-            Mean Absolute Error comparing predictions vs. df[skin_temp_col].
+        preds_array : np.ndarray
+            Shape (num_steps, num_targets) with all predicted values in real units.
+        mae_dict : dict
+            A dictionary containing per-target MAE and overall MAE.
+            E.g. {'SkinTemperature(degC)_diff': 0.3, 'HeartRate(1/min)_diff': 5.2, 'overall': 2.7}
         """
         import os
         import numpy as np
@@ -304,95 +301,150 @@ class TransformerRegressor(nn.Module):
         os.makedirs(outputs_dir, exist_ok=True)
         os.makedirs(visualizations_dir, exist_ok=True)
 
-        print("\n--- Evaluating (step-by-step) with TransformerRegressor (scaled) ---")
-        
-        # 1. Sort the DataFrame by time if necessary
+        if target_cols is None or len(target_cols) == 0:
+            raise ValueError("Please provide target_cols for multi-target evaluation.")
+
+        num_targets = len(target_cols)
+
+        # If no predict_delta_mask provided, assume all are either deltas or all absolute
+        if predict_delta_mask is None:
+            # e.g. all True => all are deltas
+            # or all False => all are absolute
+            predict_delta_mask = [False] * num_targets
+        if len(predict_delta_mask) != num_targets:
+            raise ValueError("predict_delta_mask must match the length of target_cols.")
+
+        print("\n--- Evaluating (step-by-step) with multi-target TransformerRegressor ---")
         df_sorted = df.sort_values(by=time_col).reset_index(drop=True)
-        ground_truth = df_sorted[target_col].values  # in real (unscaled) units
 
-        # 2. Keep an *unscaled* 'state' that we update each iteration
-        #    initial_state is in real units, e.g. (time_delta=1, skin_temp=33.0, ...).
-        state_unscaled = list(initial_state)  # make it mutable
-        preds = []
+        # Ground truth for each target => shape (num_steps, num_targets)
+        gt_array = df_sorted[target_cols].values
 
-        # For each row in df, do a step
+        # We'll keep an *unscaled* input 'state' that we update each iteration,
+        # matching the order of self.feature_cols. (e.g. [time_delta, skin_temp, intensity, ...])
+        state_unscaled = list(initial_state)
+        preds_list = []  # will collect predicted arrays of shape (num_targets,) per step
+
+        # Extra columns to read each step (like intensity, atemp, rh, etc.)
+        # If None, we won't do any step updates from the DF.
+        if extra_feature_cols is None:
+            extra_feature_cols = []
+
+        # Go row by row
         for i in range(len(df_sorted)):
-            # 2a) We need to scale the current 'state_unscaled' so the model sees
-            #     the same scale it saw in training.
+            # 1) Construct a single input for the model in real units => shape (1, input_dim)
+            state_array = np.array([state_unscaled], dtype=np.float32)
 
-            # shape: (1, 5) => single example with 5 features
-            # Be sure the columns match the order in feature_cols during training.
-            # For example, if feature_cols = ['time_delta', 'SkinTemperature(degC)', 'intensity', 'atemp_c', 'rh_pct']
-            # then state_unscaled must follow the same order.
-            state_array = np.array([state_unscaled], dtype=np.float32)  # shape (1,5)
+            # 2) Scale the input features
+            state_scaled = scaler_X.transform(state_array)  # (1, input_dim)
+            state_scaled_3d = state_scaled.reshape(1, 1, -1)  # (batch_size=1, seq_len=1, input_dim)
 
-            # Scale the input features
-            state_scaled = scaler_X.transform(state_array)  # still shape (1,5)
-
-            # Reshape to (batch_size=1, seq_len=1, num_features=5) for Transformer
-            state_scaled_3d = state_scaled.reshape(1, 1, -1)  # (1,1,5)
-
-            # 2b) Model forward pass in scaled space
+            # 3) Model forward pass
             self.eval()
             with torch.no_grad():
-                # Convert to torch tensor
                 state_tensor = torch.tensor(state_scaled_3d, dtype=torch.float32)
-                model_output_scaled = self(state_tensor).item()  # single float in *scaled target* space
+                output_scaled = self(state_tensor).cpu().numpy()  # shape (1, num_targets)
+            # output_scaled => (1, n_targets)
+            output_scaled = output_scaled[0]  # => shape (n_targets,)
 
-            # 2c) Inverse-transform the model output if the target was scaled
-            # The model's prediction is shape (1,1) for scaler_Y, so wrap it:
-            model_output_scaled_2d = np.array([[model_output_scaled]], dtype=np.float32)  # (1,1)
-            model_output_unscaled_2d = scaler_Y.inverse_transform(model_output_scaled_2d) # also shape (1,1)
-            model_output_unscaled = model_output_unscaled_2d[0,0]  # single float in real units
+            # 4) Inverse transform the model output
+            # We must treat shape (1, n_targets) for the scaler
+            output_scaled_2d = output_scaled.reshape(1, -1)  # shape (1, n_targets)
+            output_unscaled_2d = scaler_Y.inverse_transform(output_scaled_2d)  # also (1, n_targets)
+            output_unscaled = output_unscaled_2d[0]  # shape (n_targets,)
 
-            # 2d) Interpret the model output as delta or absolute temperature
-            if predict_delta:
-                # If the model predicts a *delta* in real units:
-                new_skin_temp = state_unscaled[1] + model_output_unscaled
-            else:
-                # If the model predicts an *absolute* temperature in real units:
-                new_skin_temp = model_output_unscaled
+            # 5) If some targets are deltas, add them to the appropriate state entries
+            # We need to know which state indices correspond to which target outputs.
+            # You might map them like: target_cols -> state indices, if your state includes
+            # those same variables. For example, if target_cols=[temp_diff, hr_diff] and
+            # state_unscaled has [time, temp, hr, intensity, ...], then you'd do something like:
+            #    new_temp = old_temp + output_unscaled[0]
+            #    new_hr   = old_hr   + output_unscaled[1]
+            #
+            # For demonstration, let's assume the second entry in 'state_unscaled' is the temperature,
+            # the third might be heart rate, etc. We'll do a simple example:
 
-            # 2e) Build the next unscaled state
-            # For time_delta, we keep incrementing by +1 in real space
-            # (though in training it was presumably also scaled).
-            new_time_delta = state_unscaled[0] + 1.0
+            # You might need a custom mapping from each target_col -> index in state_unscaled
+            # e.g. target_map = {'SkinTemperature(degC)_diff': 1, 'HeartRate(1/min)_diff': 2}
+            # For now, we'll pretend we have a direct approach:
+            # state_unscaled[1] is temperature, state_unscaled[2] is heart rate, etc.
 
-            # Pull the next row's intensity, atemp, rh in real units from the df
-            new_intensity = df_sorted[intensity_col].iloc[i]
-            new_atemp     = df_sorted[atemp_col].iloc[i]
-            new_rh        = df_sorted[rh_col].iloc[i]
+            # Example for a 2-target scenario:
+            #    if predict_delta_mask[0]:
+            #        state_unscaled[1] += output_unscaled[0]
+            #    else:
+            #        state_unscaled[1] = output_unscaled[0]
+            #    if predict_delta_mask[1]:
+            #        state_unscaled[2] += output_unscaled[1]
+            #    else:
+            #        state_unscaled[2] = output_unscaled[1]
 
-            # So the new unscaled state is (time, skin_temp, intensity, atemp, rh)
-            state_unscaled = [
-                new_time_delta,
-                new_skin_temp,
-                new_intensity,
-                new_atemp,
-                new_rh
-            ]
+            # In general, you need a known mapping from your target columns to the correct
+            # indices in state_unscaled. We'll do a naive example for an n-target scenario:
 
-            # 2f) Store the predicted *unscaled* skin temperature
-            preds.append(new_skin_temp)
+            # Let's assume each target corresponds to an index offset in state_unscaled after the first one, for example.
+            # YOU must adapt this logic to your actual data layout:
+            states_unscaled = []
+            for j in range(num_targets):
+                if predict_delta_mask[j]:
+                    # Add the delta
+                    state_unscaled[1 + j] += output_unscaled[j]
+                    states_unscaled.append(state_unscaled[1 + j])
+                else:
+                    # Absolute
+                    state_unscaled[1 + j] = output_unscaled[j]
+                    states_unscaled.append(state_unscaled[1 + j])
 
-        # 3. Compare predictions to the unscaled ground truth
-        mae = mean_absolute_error(ground_truth, preds)
-        print(f"\nPredictions complete. MAE = {mae:.4f}")
+            # 6) Update other features from df row i, e.g. intensity, atemp, rh, etc.
+            #    For example, if state_unscaled[3] is 'intensity', we set it to df_sorted[intensity_col].iloc[i].
+            for col in extra_feature_cols:
+                col_idx = self.feature_cols.index(col)
+                state_unscaled[col_idx] = df_sorted[col].iloc[i]
 
-        # 4. Plot
+            # 7) Maybe increment time by +1.0 or get it from df:
+            state_unscaled[0] += 1.0 
+
+            # Store the predicted output (the newly unscaled model output) in preds_list
+            preds_list.append(states_unscaled)
+
+        # After the loop, we have len(df_sorted) predictions, each shape (num_targets,)
+        preds_array = np.array(preds_list)  # (num_steps, num_targets)
+
+        # Compare with ground truth = shape (num_steps, num_targets)
+        # We'll compute a per-target MAE plus an overall.
+        mae_dict = {}
+        for j, tgt_col in enumerate(target_cols):
+            mae_j = mean_absolute_error(gt_array[:, j], preds_array[:, j])
+            mae_dict[tgt_col] = mae_j
+
+        # Overall MAE across all targets (flattened)
+        overall_mae = mean_absolute_error(gt_array.flatten(), preds_array.flatten())
+        mae_dict['overall'] = overall_mae
+
+        print("\n--- Multi-target predictions complete ---")
+        for col, val in mae_dict.items():
+            print(f"MAE for '{col}': {val:.4f}")
+
+        # Optionally plot each target
         if plot_results:
-            plt.figure(figsize=(10, 6))
-            plt.plot(ground_truth, label='BioGears Skin Temp (Ground Truth)', color='blue')
-            plt.plot(preds, label='Predicted Skin Temp', color='red', linestyle='--')
-            plt.xlabel('Time Step Index')
-            plt.ylabel('SkinTemperature(degC)')
-            plt.title('BioGears vs Predicted Skin Temperature')
-            plt.legend()
-            plt.grid(True)
+            num_plots = num_targets
+            fig, axes = plt.subplots(num_plots, 1, figsize=(8, 4 * num_plots), sharex=True)
+            if num_plots == 1:
+                axes = [axes]  # make it iterable
 
-            out_path = os.path.join(visualizations_dir, 'skin_temperature_comparison.png')
+            for j, ax in enumerate(axes):
+                ax.plot(gt_array[:, j], label=f'GT {target_cols[j]}', color='blue')
+                ax.plot(preds_array[:, j], label=f'Pred {target_cols[j]}', color='red', linestyle='--')
+                ax.set_title(f"{target_cols[j]}: GT vs. Prediction")
+                ax.set_xlabel('Time Step')
+                ax.set_ylabel(target_cols[j])
+                ax.legend()
+                ax.grid(True)
+
+            plt.tight_layout()
+            out_path = os.path.join(visualizations_dir, 'multitarget_comparison.png')
             plt.savefig(out_path)
             print(f"Plot saved to: {out_path}")
             plt.show()
 
-        return preds, mae
+        return preds_array, mae_dict
