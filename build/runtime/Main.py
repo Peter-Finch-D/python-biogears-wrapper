@@ -76,25 +76,25 @@ model = TransformerRegressor(
     num_layers=2,
     dim_feedforward=128,
     dropout=0.1,
-    hidden_dims=[1024, 512, 256],
+    hidden_dims=[2048, 1024, 512],
     outputs_dir=model_output_dir
 )
-"""
+
 # Uncomment if you wish to train from scratch:
 model.train_model(
     df=df,
-    seq_length=1,    # or 19
+    seq_length=1,
     epochs=200,
     learning_rate=1e-3,
-    test_split=0.2
+    test_split=0.2,
+    num_workers=10,
 )
 """
-
 # Otherwise, load the serialized model
 model_save_path = os.path.join(model_output_dir, "combined_transformer_regressor.pt")
 model.load_state_dict(torch.load(model_save_path, weights_only=True))
 model.eval()
-
+"""
 ###############################################################################
 # Evaluate step-by-step on some new data (BioGears or otherwise)
 ###############################################################################

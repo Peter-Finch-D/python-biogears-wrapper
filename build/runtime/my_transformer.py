@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.optim as optim
 from sklearn.metrics import mean_absolute_error
 import matplotlib.pyplot as plt
-plt.style.use('dark_background') # Dark mode to be cool 😎
+plt.style.use('dark_background')  # Dark mode to be cool 😎
 
 ###############################################################################
 # 1. Positional Encoding
@@ -54,7 +54,7 @@ class TransformerRegressor(nn.Module):
         outputs_dir="outputs/models"
     ):
         """
-        If d_model is None, we'll auto-calculate it as `input_dim * 4` or something similar.
+        If d_model is None, we'll auto-calculate it as input_dim * 4 or something similar.
         We also derive input_dim from len(feature_cols).
         The final layer dimension is len(target_cols).
         """
@@ -122,10 +122,10 @@ class TransformerRegressor(nn.Module):
         # 3) Transformer
         encoded = self.transformer_encoder(x)  # (batch_size, seq_len, d_model)
 
-        # 4) Take the final time step or average
+        # 4) Take the final time step
         last_step = encoded[:, -1, :]  # (batch_size, d_model)
 
-        # 5) Regressor head => (batch_size, output_dim)
+        # 5) Regressor => (batch_size, output_dim)
         out = self.regressor(last_step)
         return out  # shape: (batch_size, len(target_cols))
 
@@ -139,20 +139,32 @@ class TransformerRegressor(nn.Module):
         epochs=10,
         learning_rate=1e-3,
         test_split=0.2,
-        shuffle=False
+        shuffle=False,
+        num_workers=1       # <--- New argument controlling CPU threads for training
     ):
         """
-        Train this TransformerRegressor on the provided df, with multiple targets.
+        Train this TransformerRegressor on the provided df, with multiple targets,
+        using multi-threaded (intra-op) CPU parallelism.
 
         Steps:
-         1) We reshape 'df[feature_cols]' into (num_sims, seq_length, input_dim).
-         2) We do the same with 'df[target_cols]' => shape: (num_sims, seq_length, num_targets).
-         3) We take the final time-step for each simulation => shape: (num_sims, num_targets).
+         1) Reshape 'df[feature_cols]' -> (num_sims, seq_length, input_dim).
+         2) Reshape 'df[target_cols]' -> (num_sims, seq_length, num_targets).
+         3) Take final time-step => shape (num_sims, num_targets).
+         4) Optionally set the number of CPU threads used by PyTorch.
         """
         if len(self.feature_cols) == 0:
             raise ValueError("feature_cols is empty or None. Please set it in the constructor.")
         if len(self.target_cols) == 0:
             raise ValueError("No target_cols provided. Please set them in the constructor.")
+
+        # --- Set number of CPU threads for MKL/OMP operations ---
+        # This typically controls how many CPU cores/threads are used
+        # for CPU-bound operations (e.g. matrix multiplication).
+        # If you have a multi-core system, you can try setting num_workers to e.g. 4 or 8.
+        torch.set_num_threads(num_workers)
+        torch.set_num_interop_threads(num_workers)
+        # This won't spawn multiple processes for training; it just allows
+        # more CPU threads to be used in parallel for linear algebra.
 
         # Make sure total_rows is divisible by seq_length
         total_rows = df.shape[0]
@@ -162,7 +174,7 @@ class TransformerRegressor(nn.Module):
                 "Adjust seq_length or your data so it divides evenly."
             )
 
-        # 1) Reshape features -> (num_sims, seq_length, input_dim)
+        # 1) Reshape features
         input_dim = len(self.feature_cols)
         num_targets = len(self.target_cols)
         num_sims = total_rows // seq_length
@@ -171,13 +183,10 @@ class TransformerRegressor(nn.Module):
         data_x = data_x.reshape(num_sims, seq_length, input_dim)
         data_x_tensor = torch.tensor(data_x, dtype=torch.float32)
 
-        # 2) Reshape targets -> (num_sims, seq_length, num_targets),
-        #    then take final time step => shape (num_sims, num_targets)
+        # 2) Reshape targets
         data_y = df[self.target_cols].values  # shape: (total_rows, num_targets)
         data_y = data_y.reshape(num_sims, seq_length, num_targets)
-        # Take the final time-step for each simulation
-        # => shape (num_sims, num_targets)
-        y_final = data_y[:, -1, :]  # final step
+        y_final = data_y[:, -1, :]  # final step => shape (num_sims, num_targets)
         y_tensor = torch.tensor(y_final, dtype=torch.float32)
 
         # 3) Train/test split
@@ -197,17 +206,17 @@ class TransformerRegressor(nn.Module):
         print("\n--- Starting TransformerRegressor Training (Multi-Target) ---")
         print(f"Train size: {len(train_idx)}, Test size: {len(test_idx)}")
         print(f"Input shape: {x_train.shape}, Target shape: {y_train.shape}")
+        print(f"Using up to {num_workers} CPU threads for training.\n")
 
         # 4) Define loss and optimizer
-        #    MSELoss can handle multi-target shape => (batch_size, num_targets)
         criterion = nn.MSELoss()
         optimizer = optim.Adam(self.parameters(), lr=learning_rate)
 
         # 5) Training loop
-        self.train()
+        self.train()  # set model to training mode
         for epoch in range(epochs):
             optimizer.zero_grad()
-            y_pred = self(x_train)       # shape: (train_size, num_targets)
+            y_pred = self(x_train)  # shape: (train_size, num_targets)
             loss = criterion(y_pred, y_train)
             loss.backward()
             optimizer.step()
@@ -216,9 +225,9 @@ class TransformerRegressor(nn.Module):
                 print(f"Epoch [{epoch+1}/{epochs}], Loss: {loss.item():.6f}")
 
         # 6) Evaluate on test set
-        self.eval()
+        self.eval()  # set model to eval mode
         with torch.no_grad():
-            y_pred_test = self(x_test)   # (test_size, num_targets)
+            y_pred_test = self(x_test)
             test_loss = criterion(y_pred_test, y_test)
         print(f"\nTest MSE: {test_loss.item():.6f}")
 
