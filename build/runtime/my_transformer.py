@@ -248,6 +248,7 @@ class TransformerRegressor(nn.Module):
         scaler_Y,
         # The columns in df that are being predicted (multiple!)
         target_cols=None,
+        figure_ranges=None,
         # If your input has time_col, intensity_col, etc. to be updated each step:
         time_col='Time(s)',
         # If you want to pass in columns that update each step for the rest of the state:
@@ -447,6 +448,9 @@ class TransformerRegressor(nn.Module):
                 ax.set_title(f"{target_cols[j]}: GT vs. Prediction")
                 ax.set_xlabel('Time Step')
                 ax.set_ylabel(target_cols[j])
+                if figure_ranges:
+                    if target_cols[j] in figure_ranges:
+                        ax.set_ylim(figure_ranges[target_cols[j]])
                 ax.legend()
                 ax.grid(True)
 
