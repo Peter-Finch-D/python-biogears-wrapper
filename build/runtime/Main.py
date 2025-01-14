@@ -66,7 +66,7 @@ scaler_Y        = results['scaler_Y']
 model = TransformerRegressor(
     feature_cols=feature_cols,
     target_cols=target_cols,
-    nhead=4,
+    nhead=6,
     num_layers=2,
     dim_feedforward=128,
     dropout=0.1,
@@ -78,10 +78,10 @@ model = TransformerRegressor(
 model.train_model(
     df=df,
     seq_length=1,
-    epochs=350,
-    learning_rate=1e-3,
+    epochs=200,
+    learning_rate=5e-4,
     test_split=0.0,
-    num_workers=12,
+    num_workers=15,
 )
 model.eval()
 """
