@@ -32,12 +32,14 @@ output_csv_path = os.path.join(outputs_dir, 'processed_data.csv')
 feature_cols = [
     'time_delta',
     'SkinTemperature(degC)',
+    'CoreTemperature(degC)',
     'intensity', 
     'atemp_c', 
     'rh_pct',
 ]
 target_cols = [
     'SkinTemperature(degC)_diff',
+    'CoreTemperature(degC)_diff',
 ]
 
 ###############################################################################
@@ -78,7 +80,7 @@ model.train_model(
     seq_length=1,
     epochs=350,
     learning_rate=1e-3,
-    test_split=0.2,
+    test_split=0.0,
     num_workers=12,
 )
 model.eval()
@@ -92,7 +94,7 @@ model.eval()
 # Evaluate step-by-step on some new data (BioGears or otherwise)
 ###############################################################################
 # We'll define an initial state for the features (time_delta, CoreTemp, SkinTemp, intensity, atemp_c, rh_pct)
-initial_state = (0, 33, 0.25, 35.0, 75.0)
+initial_state = (0, 33, 37, 0.25, 35.0, 75.0)
 
 """
 # Run BioGears with a hot scenario
@@ -111,11 +113,12 @@ bg_df.to_csv(os.path.join(outputs_dir, 'biogears_results.csv'))
 """
 # Or use the serialialized BioGears results to avoid running BioGears
 bg_df = pd.read_csv(os.path.join(outputs_dir, 'biogears_results.csv'))
-predict_delta_mask = [True]
-compare_cols = ['SkinTemperature(degC)']
+predict_delta_mask = [True, True]
+compare_cols = ['SkinTemperature(degC)', 'CoreTemperature(degC)']
 extra_feature_cols = ['intensity', 'atemp_c', 'rh_pct']  # these match feature_cols[3:]
 figure_ranges = {
     'SkinTemperature(degC)': (20, 35),
+    'CoreTemperature(degC)': (35, 40),
 }
 
 preds_array, mae_dict = model.evaluate_model(
