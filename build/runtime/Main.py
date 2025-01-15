@@ -66,14 +66,14 @@ scaler_Y        = results['scaler_Y']
 model = TransformerRegressor(
     feature_cols=feature_cols,
     target_cols=target_cols,
-    nhead=12,
+    nhead=24,
     num_layers=2,
     dim_feedforward=128,
     dropout=0.1,
     hidden_dims=[1024, 512, 256],
     outputs_dir=model_output_dir
 )
-
+"""
 # Uncomment if you wish to train from scratch:
 model.train_model(
     df=df,
@@ -89,14 +89,13 @@ model.eval()
 model_save_path = os.path.join(model_output_dir, "combined_transformer_regressor.pt")
 model.load_state_dict(torch.load(model_save_path, weights_only=True))
 model.eval()
-"""
+
 ###############################################################################
 # Evaluate step-by-step on some new data (BioGears or otherwise)
 ###############################################################################
 # We'll define an initial state for the features (time_delta, CoreTemp, SkinTemp, intensity, atemp_c, rh_pct)
 initial_state = (0, 33, 37, 0.25, 35.0, 75.0)
 
-"""
 # Run BioGears with a hot scenario
 from biogears_python.execution import run_biogears
 from biogears_python.xmlscenario import segments_to_xml
@@ -110,15 +109,15 @@ segments_hot = { # Hot scenario
 xml = segments_to_xml(segments_hot)
 bg_df = run_biogears(xml, segments_hot)
 bg_df.to_csv(os.path.join(outputs_dir, 'biogears_results.csv'))
-"""
+
 # Or use the serialialized BioGears results to avoid running BioGears
-bg_df = pd.read_csv(os.path.join(outputs_dir, 'biogears_results.csv'))
+#bg_df = pd.read_csv(os.path.join(outputs_dir, 'biogears_results.csv'))
 predict_delta_mask = [True, True]
 compare_cols = ['SkinTemperature(degC)', 'CoreTemperature(degC)']
 extra_feature_cols = ['intensity', 'atemp_c', 'rh_pct']  # these match feature_cols[3:]
 figure_ranges = {
-    'SkinTemperature(degC)': (20, 35),
-    'CoreTemperature(degC)': (35, 40),
+    'SkinTemperature(degC)': (10, 35),
+    'CoreTemperature(degC)': (36, 40),
 }
 
 preds_array, mae_dict = model.evaluate_model(
