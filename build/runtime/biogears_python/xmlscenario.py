@@ -42,6 +42,7 @@ def segments_to_xml(segments):
         #{'Name': 'RespirationRate', 'Unit': '1/min'},
         #{'Name': 'AchievedExerciseLevel'},
         #{'Name': 'FatigueLevel'},
+        #{'Name': 'TotalWorkRate', 'Unit': 'W'},
         #{'Name': 'TotalMetabolicRate', 'Unit': 'W'},
         #{'Name': 'TotalWorkRateLevel'}
     ]

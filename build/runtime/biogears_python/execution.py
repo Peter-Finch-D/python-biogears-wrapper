@@ -44,7 +44,6 @@ def run_biogears(xml: str, segments: Dict[str, List[float]]) -> pd.DataFrame:
     df = pd.read_csv(io.StringIO(csv_data))
 
     # Minimal columns rename for consistency
-
     df.columns = [
         'Time(s)',
         'HeartRate(1/min)',
